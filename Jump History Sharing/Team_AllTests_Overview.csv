@@ -1,0 +1,18 @@
+Name,TTD,LTD,BW [KG],Jump Height (Imp-Mom) [cm],CMJ_ABS_OVR,CMJ_GEN_OVR,Jump Height (Imp-Mom) [cm] (L),SLJ_L_ABS_OVR,SLJ_L_GEN_OVR,Jump Height (Imp-Mom) [cm] (R),SLJ_R_ABS_OVR,SLJ_R_GEN_OVR,BW_class,JH_class,JH_L_class,JH_R_class
+Squirtle,16,2025-12-18,86.4,31.4,High,Avg,54.1,High,High,39.7,High,Low,Avg,Avg,High,Avg
+Lucario,12,2025-12-17,76.0,42.0,Low,Low,45.0,Low,High,50.5,High,Low,Avg,Avg,Avg,High
+Bulbasaur,16,2025-12-04,89.3,28.2,High,Avg,19.9,Avg,High,22.6,High,High,Avg,Avg,Avg,Avg
+Jigglypuff,16,2025-12-02,105.3,28.8,Avg,Avg,12.4,Avg,Avg,37.3,Avg,Avg,High,Avg,Low,Avg
+Umbreon,13,2025-11-30,65.7,28.3,Low,Low,12.7,Avg,High,44.5,Low,Low,Low,Avg,Low,Avg
+Mewtwo,16,2025-11-28,77.1,52.6,High,Avg,23.5,High,Avg,13.4,Low,High,Avg,High,Avg,Low
+Alakazam,11,2025-11-18,85.0,64.3,High,High,29.0,High,High,47.3,High,High,Avg,High,Avg,Avg
+Charizard,13,2025-11-11,70.6,51.5,High,Avg,24.3,High,High,45.0,Low,Avg,Low,Avg,Avg,Avg
+Gengar,12,2025-11-02,87.0,53.4,Avg,Low,19.6,High,Low,12.9,Low,Low,Avg,High,Avg,Low
+Machamp,10,2025-10-16,94.3,37.6,Low,High,34.5,High,Avg,43.9,Low,Low,Avg,Avg,Avg,Avg
+Garchomp,16,2025-10-15,112.8,46.4,Low,Low,32.1,High,High,29.7,High,High,High,Avg,Avg,Avg
+Dragonite,13,2025-10-14,98.4,22.7,Low,High,13.1,Low,Low,33.7,High,High,Avg,Low,Low,Avg
+Sylveon,13,2025-09-17,67.4,21.1,High,Avg,45.8,Low,High,21.1,High,Low,Low,Low,Avg,Low
+Snorlax,15,2025-09-15,72.8,37.4,High,High,48.5,Low,High,33.7,High,Avg,Avg,Avg,High,Avg
+Eevee,12,2025-08-18,97.7,35.3,Avg,High,51.0,Avg,Avg,51.8,Low,Low,Avg,Avg,High,High
+Pikachu,14,2025-07-17,92.2,43.8,High,High,37.4,Low,High,16.0,Low,Low,Avg,Avg,Avg,Low
+Greninja,12,2025-06-03,80.2,47.6,High,Avg,53.5,High,Avg,49.6,High,Low,Avg,Avg,High,High
