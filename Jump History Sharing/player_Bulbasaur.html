@@ -28,14 +28,28 @@ body {
     color: #0055aa;
     text-decoration: none;
 }
-
 .back-link:hover {
     text-decoration: underline;
 }
 
-#team-logo {
-    height: 80px;
+/* NEW: top-right player identity */
+.player-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     flex: 0 0 auto;
+}
+.player-identity img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid #ccc;
+}
+.player-identity .player-identity-name {
+    font-weight: 800;
+    font-size: 16px;
+    white-space: nowrap;
 }
 
 h2 {
@@ -56,6 +70,7 @@ h2 {
     font-size: 11px;
     padding: 2px 6px;
 }
+
 table {
     border-collapse: collapse;
     width: 100%;
@@ -85,10 +100,15 @@ a:hover {
 
 <div class="page-header">
     <div class="header-left">
-        <h1>Bulbasaur - Jump History</h1>
+        <h1>Jump History</h1>
         <a class="back-link" href="index.html">&larr; Back to Team Overview</a>
     </div>
-    <img id="team-logo" src="html_accessories/PKMN_logo.png" alt="PKMN Logo" />
+
+    <div class="player-identity">
+        <img src="html_accessories/Bulbasaur.png" alt="Bulbasaur"
+             onerror="this.style.display='none';" />
+        <div class="player-identity-name">Bulbasaur</div>
+    </div>
 </div>
 
 
@@ -151,7 +171,6 @@ function makeTablesSortable() {
                     const cellB = rowB.children[index]?.textContent || "";
                     const valA = parseCellValue(cellA);
                     const valB = parseCellValue(cellB);
-                    // Date compare
                     if (valA instanceof Date && valB instanceof Date) {
                         return asc ? (valA - valB) : (valB - valA);
                     }
@@ -196,7 +215,6 @@ function positionTooltip(evt, tooltip) {
     const padding = 12;
     const margin = 6;
 
-    // Must be visible to measure
     const rect = tooltip.getBoundingClientRect();
     const w = rect.width;
     const h = rect.height;
@@ -204,16 +222,13 @@ function positionTooltip(evt, tooltip) {
     let x = evt.clientX + padding;
     let y = evt.clientY + padding;
 
-    // Flip horizontally if would go off right edge
     if (x + w + margin > window.innerWidth) {
         x = evt.clientX - w - padding;
     }
-    // Flip vertically if would go off bottom edge
     if (y + h + margin > window.innerHeight) {
         y = evt.clientY - h - padding;
     }
 
-    // Clamp to viewport
     x = Math.max(margin, Math.min(x, window.innerWidth - w - margin));
     y = Math.max(margin, Math.min(y, window.innerHeight - h - margin));
 
@@ -260,7 +275,6 @@ function showTooltip(evt, title, itemsStr) {
     }
 
     tooltip.style.display = "block";
-    // After display, position with flipping/clamping
     positionTooltip(evt, tooltip);
 }
 
@@ -293,13 +307,11 @@ function initPagination() {
         const allRows = Array.from(tbody.querySelectorAll("tr"));
         if (allRows.length === 0) return;
 
-        // Wrap table
         const wrapper = document.createElement("div");
         wrapper.className = "table-pagination-wrapper";
         table.parentNode.insertBefore(wrapper, table);
         wrapper.appendChild(table);
 
-        // Controls
         const controls = document.createElement("div");
         controls.className = "table-pagination-controls";
 
