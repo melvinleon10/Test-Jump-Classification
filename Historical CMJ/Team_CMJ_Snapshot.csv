@@ -1,18 +1,18 @@
 Name,TTD,LTD,BW [KG],Jump Height (Imp-Mom) [cm],Absorption_Class,Generation_Class
-Squirtle,16,2025-12-18,86.4,31.4,High,Avg
+Squirtle,16,2025-12-18,86.4,31.4,Low,Avg
 Lucario,12,2025-12-17,76.0,42.0,Low,Low
-Bulbasaur,16,2025-12-04,89.3,28.2,High,Avg
+Bulbasaur,16,2025-12-04,89.3,28.2,Low,Avg
 Jigglypuff,16,2025-12-02,105.3,28.8,Avg,Avg
-Umbreon,13,2025-11-30,65.7,28.3,Low,Low
+Umbreon,13,2025-11-30,65.7,28.3,High,Low
 Mewtwo,16,2025-11-28,77.1,52.6,High,Avg
 Alakazam,11,2025-11-18,85.0,64.3,High,High
 Charizard,13,2025-11-11,70.6,51.5,High,Avg
 Gengar,12,2025-11-02,87.0,53.4,Avg,Low
 Machamp,10,2025-10-16,94.3,37.6,Low,High
-Garchomp,16,2025-10-15,112.8,46.4,Low,Low
-Dragonite,13,2025-10-14,98.4,22.7,Low,High
-Sylveon,13,2025-09-17,67.4,21.1,High,Avg
+Garchomp,16,2025-10-15,112.8,46.4,High,Low
+Dragonite,13,2025-10-14,98.4,22.7,High,High
+Sylveon,13,2025-09-17,67.4,21.1,Low,Avg
 Snorlax,15,2025-09-15,72.8,37.4,High,High
 Eevee,12,2025-08-18,97.7,35.3,Avg,High
-Pikachu,14,2025-07-17,92.2,43.8,High,High
-Greninja,12,2025-06-03,80.2,47.6,High,Avg
+Pikachu,14,2025-07-17,92.2,43.8,Low,High
+Greninja,12,2025-06-03,80.2,47.6,Low,Avg

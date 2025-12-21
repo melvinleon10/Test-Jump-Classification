@@ -144,11 +144,12 @@ def classify_z(z):
 def classify_depth_z(z):
     if pd.isna(z):
         return "Avg"
-    if z <= -1:
-        return "High"
     if z >= 1:
+        return "High"
+    if z <= -1:
         return "Low"
     return "Avg"
+
 
 for param in ALL_PARAMS:
     if param not in df.columns:
