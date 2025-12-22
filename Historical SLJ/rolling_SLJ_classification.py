@@ -50,6 +50,7 @@ df = df.dropna(subset=[PLAYER_COL, DATE_COL]).sort_values([PLAYER_COL, DATE_COL]
 
 # -------------------------------------------------------------
 # 3. DEFINE PARAMETER SETS FOR L & R
+#    NOTE: DEPTH INCLUDED IN GENERATION OUTPUT PER LEG
 # -------------------------------------------------------------
 GENERATION_PARAMS = {}
 ABSORPTION_PARAMS = {}
@@ -58,13 +59,14 @@ ALL_PARAMS = []
 
 for leg in ["L", "R"]:
     gen_params = [
-        f"Concentric Duration [ms] ({leg})",
-        f"Concentric Mean Force / BM [N/kg] ({leg})",
+        f"Concentric Duration [ms] ({leg})",           # PD
+        f"Countermovement Depth [cm] ({leg})",         # DEP (now included)
+        f"Concentric Mean Force / BM [N/kg] ({leg})",  # PF
     ]
     abs_params = [
-        f"Braking Phase Duration [ms] ({leg})",
-        f"Countermovement Depth [cm] ({leg})",
-        f"Eccentric Mean Force / BM [N/kg] ({leg})",  # will be created below
+        f"Braking Phase Duration [ms] ({leg})",        # BD
+        f"Countermovement Depth [cm] ({leg})",         # DEP
+        f"Eccentric Mean Force / BM [N/kg] ({leg})",   # BF (created below)
     ]
     other_params = [
         "BW [KG]",
@@ -90,7 +92,7 @@ if "BW [KG]" not in df.columns:
     raise SystemExit("Required column 'BW [KG]' not found.")
 df["BW [KG]"] = pd.to_numeric(df["BW [KG]"], errors="coerce")
 
-for c in list(set(ALL_PARAMS + ["BW [KG]"])):
+for c in list(set(ALL_PARAMS + ["BW [KG]"])):  # ensure BW in coercion
     if c in df.columns:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
@@ -115,6 +117,10 @@ for leg in ["L", "R"]:
     if emf_col not in ABSORPTION_PARAMS[leg]:
         ABSORPTION_PARAMS[leg].append(emf_col)
 
+print("Generation parameters:", GENERATION_PARAMS)
+print("Absorption parameters:", ABSORPTION_PARAMS)
+print("Standalone classified params:", OTHER_PARAMS)
+
 # -------------------------------------------------------------
 # 6. TREAT 0 AS MISSING FOR SLJ METRICS
 # -------------------------------------------------------------
@@ -122,15 +128,11 @@ for c in ALL_PARAMS:
     if c in df.columns:
         df.loc[df[c] == 0, c] = np.nan
 
-print("Generation parameters:", GENERATION_PARAMS)
-print("Absorption parameters:", ABSORPTION_PARAMS)
-print("Standalone classified params:", OTHER_PARAMS)
-
 # -------------------------------------------------------------
 # 7. PARAMETER-LEVEL ROLLING CLASSIFICATION
-#    - ignore missing
-#    - first 2 valid trials per player+param => z=0 => class Avg
-#    - avg_prev rounded 1 decimal
+#    Depth is POSITIVE in your dataset:
+#       High depth = deeper = bigger value => z>=1 => High
+#       Low  depth = shallower = smaller value => z<=-1 => Low
 # -------------------------------------------------------------
 def classify_z(z):
     if pd.isna(z):
@@ -140,16 +142,6 @@ def classify_z(z):
     if z <= -1:
         return "Low"
     return "Avg"
-
-def classify_depth_z(z):
-    if pd.isna(z):
-        return "Avg"
-    if z >= 1:
-        return "High"
-    if z <= -1:
-        return "Low"
-    return "Avg"
-
 
 for param in ALL_PARAMS:
     if param not in df.columns:
@@ -173,8 +165,6 @@ for param in ALL_PARAMS:
     df[f"{param}_avg_prev"] = mean_prev.round(1)
 
     z_raw = (df[param] - mean_prev) / sd_prev
-
-    # IMPORTANT FIX: init with np.nan, not pd.NA, for float series
     z = pd.Series(np.nan, index=df.index, dtype="float64")
 
     has_current = df[param].notna()
@@ -184,76 +174,120 @@ for param in ALL_PARAMS:
     mask_normal = has_current & enough_history & sd_ok
     z.loc[mask_normal] = z_raw.loc[mask_normal]
 
-    # early trials OR sd==0 OR sd missing => force Avg via z=0
     mask_force_avg = has_current & (~enough_history | ~sd_ok)
     z.loc[mask_force_avg] = 0.0
 
     df[f"{param}_z"] = z
-
-    if "Countermovement Depth [cm]" in param:
-        df[f"{param}_class"] = df[f"{param}_z"].apply(classify_depth_z)
-    else:
-        df[f"{param}_class"] = df[f"{param}_z"].apply(classify_z)
+    df[f"{param}_class"] = df[f"{param}_z"].apply(classify_z)
 
 # -------------------------------------------------------------
 # 8. DAY-LEVEL GENERATION & ABSORPTION CLASSIFICATION PER LEG
-#    - if leg raw inputs missing => overall leg class blank
+#    NEW: Generation overall uses PD + DEP + PF (your updated logic)
+#    Absorption overall uses BD + DEP + BF (your updated logic)
 # -------------------------------------------------------------
-def classify_generation(dur_class, force_class):
-    if pd.isna(dur_class) or pd.isna(force_class):
+def classify_generation(pd_class, dep_class, pf_class):
+    if pd.isna(pd_class) or pd.isna(dep_class) or pd.isna(pf_class):
         return ""
-    d, f = dur_class, force_class
+    PD, DEP, PF = str(pd_class), str(dep_class), str(pf_class)
 
-    if d == "Avg" and f == "Avg":
+    # If PD & DEP both HIGH:
+    if PD == "High" and DEP == "High":
+        if PF == "High":
+            return "Avg"
+        if PF in ("Low", "Avg"):
+            return "Low"
+
+    # If PD & DEP both LOW:
+    if PD == "Low" and DEP == "Low":
+        if PF == "Low":
+            return "Avg"
+        if PF in ("High", "Avg"):
+            return "High"
+
+    # If exactly one of PD / DEP is HIGH:
+    if (PD == "High" and DEP == "Avg") or (PD == "Avg" and DEP == "High"):
+        if PD == "High" and DEP == "Avg":
+            if PF in ("Avg", "Low"):
+                return "Low"
+            if PF == "High":
+                return "High"
+        else:
+            if PF in ("Avg", "High"):
+                return "High"
+            if PF == "Low":
+                return "Low"
+
+    # If exactly one of PD / DEP is LOW:
+    if (PD == "Low" and DEP == "Avg") or (PD == "Avg" and DEP == "Low"):
+        if PD == "Low" and DEP == "Avg":
+            if PF == "Low":
+                return "Low"
+            return "High"  # PF Avg/High
+        else:
+            if PF in ("Avg", "Low"):
+                return "Low"
+            if PF == "High":
+                return "High"
+
+    # PD & DEP both NORMAL:
+    if PD == "Avg" and DEP == "Avg":
+        if PF == "High":
+            return "High"
+        if PF == "Low":
+            return "Low"
         return "Avg"
 
-    if d == "Avg" and f == "Low":
-        return "Low"
-    if d == "High" and f == "Avg":
-        return "Low"
-    if d == "High" and f == "Low":
-        return "Low"
-    if d == "Low" and f == "Low":
-        return "Low"
-
-    if d == "High" and f == "High":
+    # If one HIGH, one LOW (PD vs DEP):
+    if PD == "Low" and DEP == "High":
         return "High"
-    if d == "Low" and f == "Avg":
-        return "High"
-    if d == "Avg" and f == "High":
-        return "High"
-    if d == "Low" and f == "High":
-        return "High"
+    if PD == "High" and DEP == "Low":
+        return "Low"
 
     return "Avg"
 
 def classify_absorption(bd_class, dep_class, bf_class):
     if pd.isna(bd_class) or pd.isna(dep_class) or pd.isna(bf_class):
         return ""
-    BD, DEP, BF = bd_class, dep_class, bf_class
+    BD, DEP, BF = str(bd_class), str(dep_class), str(bf_class)
 
+    # If BD & DEP both HIGH:
     if BD == "High" and DEP == "High":
-        return "High"
+        if BF == "High":
+            return "Avg"
+        return "High"  # BF Avg/Low
+
+    # If BD & DEP both LOW:
     if BD == "Low" and DEP == "Low":
-        return "Low"
+        if BF == "Low":
+            return "Avg"
+        return "Low"   # BF Avg/High
 
-    if BD == "Low" and DEP == "High":
-        return "High"
-    if BD == "High" and DEP == "Low":
-        return "Low"
+    # If exactly one of BD/DEP is HIGH:
+    if (BD == "High" and DEP == "Avg") or (BD == "Avg" and DEP == "High"):
+        if BD == "High" and DEP == "Avg":
+            if BF in ("Avg", "Low"):
+                return "Low"
+            if BF == "High":
+                return "High"
+        else:
+            if BF in ("Avg", "High"):
+                return "High"
+            if BF == "Low":
+                return "Low"
 
-    if BD == "High" and DEP == "Avg":
-        return "Low"
+    # If exactly one of BD/DEP is LOW:
+    if (BD == "Low" and DEP == "Avg") or (BD == "Avg" and DEP == "Low"):
+        if BD == "Low" and DEP == "Avg":
+            if BF == "Low":
+                return "Low"
+            return "High"  # BF Avg/High
+        else:
+            if BF in ("Avg", "Low"):
+                return "Low"
+            if BF == "High":
+                return "High"
 
-    if BD == "Avg" and DEP == "High":
-        return "Low" if BF == "Low" else "High"
-
-    if BD == "Low" and DEP == "Avg":
-        return "Low" if BF == "Low" else "High"
-
-    if BD == "Avg" and DEP == "Low":
-        return "High" if BF == "High" else "Low"
-
+    # BD & DEP both NORMAL:
     if BD == "Avg" and DEP == "Avg":
         if BF == "High":
             return "High"
@@ -261,25 +295,31 @@ def classify_absorption(bd_class, dep_class, bf_class):
             return "Low"
         return "Avg"
 
+    # If one HIGH, one LOW (BD vs DEP):
+    if BD == "Low" and DEP == "High":
+        return "High"
+    if BD == "High" and DEP == "Low":
+        return "Low"
+
     return "Avg"
 
 for leg in ["L", "R"]:
-    dur_col   = f"Concentric Duration [ms] ({leg})"
-    force_col = f"Concentric Mean Force / BM [N/kg] ({leg})"
-    bd_col    = f"Braking Phase Duration [ms] ({leg})"
-    dep_col   = f"Countermovement Depth [cm] ({leg})"
-    bf_col    = f"Eccentric Mean Force / BM [N/kg] ({leg})"
+    pd_col   = f"Concentric Duration [ms] ({leg})"
+    pf_col   = f"Concentric Mean Force / BM [N/kg] ({leg})"
+    bd_col   = f"Braking Phase Duration [ms] ({leg})"
+    dep_col  = f"Countermovement Depth [cm] ({leg})"
+    bf_col   = f"Eccentric Mean Force / BM [N/kg] ({leg})"
 
-    dur_class_col   = f"{dur_col}_class"
-    force_class_col = f"{force_col}_class"
-    bd_class_col    = f"{bd_col}_class"
-    dep_class_col   = f"{dep_col}_class"
-    bf_class_col    = f"{bf_col}_class"
+    pd_class_col = f"{pd_col}_class"
+    pf_class_col = f"{pf_col}_class"
+    bd_class_col = f"{bd_col}_class"
+    dep_class_col = f"{dep_col}_class"
+    bf_class_col = f"{bf_col}_class"
 
     gen_col = f"Generation_Class_{leg}"
     abs_col = f"Absorption_Class_{leg}"
 
-    required_gen_raw = [c for c in [dur_col, force_col] if c in df.columns]
+    required_gen_raw = [c for c in [pd_col, dep_col, pf_col] if c in df.columns]
     required_abs_raw = [c for c in [bd_col, dep_col, bf_col] if c in df.columns]
 
     df[gen_col] = ""
@@ -288,7 +328,7 @@ for leg in ["L", "R"]:
     if required_gen_raw:
         mask_gen = df[required_gen_raw].notna().all(axis=1)
         df.loc[mask_gen, gen_col] = df.loc[mask_gen].apply(
-            lambda r: classify_generation(r.get(dur_class_col), r.get(force_class_col)),
+            lambda r: classify_generation(r.get(pd_class_col), r.get(dep_class_col), r.get(pf_class_col)),
             axis=1
         )
 
@@ -322,6 +362,7 @@ for leg in ["L", "R"]:
 
 # -------------------------------------------------------------
 # 10. BUILD PER-LEG OUTPUT DATAFRAMES
+#    Generation outputs now include DEP (same values/classes)
 # -------------------------------------------------------------
 base_cols = [PLAYER_COL, DATE_COL]
 df_gen_leg = {}
@@ -637,40 +678,42 @@ for player in unique_players:
     df_gen_R_p = df_gen_leg["R"][df_gen_leg["R"][PLAYER_COL] == player]
     df_abs_R_p = df_abs_leg["R"][df_abs_leg["R"][PLAYER_COL] == player]
 
-    gen_value_cols_L = ["Generation_Class_L", "BW [KG]", "Jump Height (Imp-Mom) [cm] (L)"] + GENERATION_PARAMS["L"]
-    abs_value_cols_L = ["Absorption_Class_L", "BW [KG]", "Jump Height (Imp-Mom) [cm] (L)"] + ABSORPTION_PARAMS["L"]
-    gen_value_cols_R = ["Generation_Class_R", "BW [KG]", "Jump Height (Imp-Mom) [cm] (R)"] + GENERATION_PARAMS["R"]
-    abs_value_cols_R = ["Absorption_Class_R", "BW [KG]", "Jump Height (Imp-Mom) [cm] (R)"] + ABSORPTION_PARAMS["R"]
+    gen_value_cols_L = ["Generation_Class_L", "BW [KG]", f"Jump Height (Imp-Mom) [cm] (L)"] + GENERATION_PARAMS["L"]
+    abs_value_cols_L = ["Absorption_Class_L", "BW [KG]", f"Jump Height (Imp-Mom) [cm] (L)"] + ABSORPTION_PARAMS["L"]
+    gen_value_cols_R = ["Generation_Class_R", "BW [KG]", f"Jump Height (Imp-Mom) [cm] (R)"] + GENERATION_PARAMS["R"]
+    abs_value_cols_R = ["Absorption_Class_R", "BW [KG]", f"Jump Height (Imp-Mom) [cm] (R)"] + ABSORPTION_PARAMS["R"]
 
     gen_class_map_L = {
         "Generation_Class_L": "Generation_Class_L",
         "BW [KG]": "BW [KG]_class",
         "Jump Height (Imp-Mom) [cm] (L)": "Jump Height (Imp-Mom) [cm] (L)_class",
-        "Concentric Duration [ms] (L)": "Concentric Duration [ms] (L)_class",
-        "Concentric Mean Force / BM [N/kg] (L)": "Concentric Mean Force / BM [N/kg] (L)_class",
+        f"Concentric Duration [ms] (L)": f"Concentric Duration [ms] (L)_class",
+        f"Countermovement Depth [cm] (L)": f"Countermovement Depth [cm] (L)_class",
+        f"Concentric Mean Force / BM [N/kg] (L)": f"Concentric Mean Force / BM [N/kg] (L)_class",
     }
     abs_class_map_L = {
         "Absorption_Class_L": "Absorption_Class_L",
         "BW [KG]": "BW [KG]_class",
         "Jump Height (Imp-Mom) [cm] (L)": "Jump Height (Imp-Mom) [cm] (L)_class",
-        "Braking Phase Duration [ms] (L)": "Braking Phase Duration [ms] (L)_class",
-        "Countermovement Depth [cm] (L)": "Countermovement Depth [cm] (L)_class",
-        "Eccentric Mean Force / BM [N/kg] (L)": "Eccentric Mean Force / BM [N/kg] (L)_class",
+        f"Braking Phase Duration [ms] (L)": f"Braking Phase Duration [ms] (L)_class",
+        f"Countermovement Depth [cm] (L)": f"Countermovement Depth [cm] (L)_class",
+        f"Eccentric Mean Force / BM [N/kg] (L)": f"Eccentric Mean Force / BM [N/kg] (L)_class",
     }
     gen_class_map_R = {
         "Generation_Class_R": "Generation_Class_R",
         "BW [KG]": "BW [KG]_class",
         "Jump Height (Imp-Mom) [cm] (R)": "Jump Height (Imp-Mom) [cm] (R)_class",
-        "Concentric Duration [ms] (R)": "Concentric Duration [ms] (R)_class",
-        "Concentric Mean Force / BM [N/kg] (R)": "Concentric Mean Force / BM [N/kg] (R)_class",
+        f"Concentric Duration [ms] (R)": f"Concentric Duration [ms] (R)_class",
+        f"Countermovement Depth [cm] (R)": f"Countermovement Depth [cm] (R)_class",
+        f"Concentric Mean Force / BM [N/kg] (R)": f"Concentric Mean Force / BM [N/kg] (R)_class",
     }
     abs_class_map_R = {
         "Absorption_Class_R": "Absorption_Class_R",
         "BW [KG]": "BW [KG]_class",
         "Jump Height (Imp-Mom) [cm] (R)": "Jump Height (Imp-Mom) [cm] (R)_class",
-        "Braking Phase Duration [ms] (R)": "Braking Phase Duration [ms] (R)_class",
-        "Countermovement Depth [cm] (R)": "Countermovement Depth [cm] (R)_class",
-        "Eccentric Mean Force / BM [N/kg] (R)": "Eccentric Mean Force / BM [N/kg] (R)_class",
+        f"Braking Phase Duration [ms] (R)": f"Braking Phase Duration [ms] (R)_class",
+        f"Countermovement Depth [cm] (R)": f"Countermovement Depth [cm] (R)_class",
+        f"Eccentric Mean Force / BM [N/kg] (R)": f"Eccentric Mean Force / BM [N/kg] (R)_class",
     }
 
     with PdfPages(pdf_path) as pdf:

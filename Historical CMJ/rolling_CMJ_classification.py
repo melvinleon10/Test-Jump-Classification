@@ -44,16 +44,18 @@ df = df.dropna(subset=[PLAYER_COL, DATE_COL]).sort_values([PLAYER_COL, DATE_COL]
 
 # -------------------------------------------------------------
 # 3. DEFINE PARAMETER SETS
+#   NOTE: DEPTH INCLUDED IN GENERATION OUTPUT (per your request)
 # -------------------------------------------------------------
 GENERATION_PARAMS = [
-    "Concentric Duration [ms]",
-    "Concentric Mean Force / BM [N/kg]",
+    "Concentric Duration [ms]",              # PD
+    "Countermovement Depth [cm]",            # DEP (now included)
+    "Concentric Mean Force / BM [N/kg]",     # PF
 ]
 
 ABSORPTION_PARAMS = [
-    "Braking Phase Duration [ms]",
-    "Countermovement Depth [cm]",
-    "Eccentric Mean Force / BM [N/kg]",  # created below
+    "Braking Phase Duration [ms]",           # BD
+    "Countermovement Depth [cm]",            # DEP
+    "Eccentric Mean Force / BM [N/kg]",      # BF (created below)
 ]
 
 OTHER_PARAMS = [
@@ -92,7 +94,7 @@ df["Eccentric Mean Force / BM [N/kg]"] = (
 # -------------------------------------------------------------
 # 6. FINALIZE PARAM LISTS (include created column)
 # -------------------------------------------------------------
-ALL_PARAMS = GENERATION_PARAMS + ABSORPTION_PARAMS + OTHER_PARAMS
+ALL_PARAMS = list(dict.fromkeys(GENERATION_PARAMS + ABSORPTION_PARAMS + OTHER_PARAMS))
 ALL_PARAMS = [p for p in ALL_PARAMS if p in df.columns]
 
 GENERATION_PARAMS = [p for p in GENERATION_PARAMS if p in ALL_PARAMS]
@@ -104,7 +106,7 @@ print("Absorption parameters:", ABSORPTION_PARAMS)
 print("Standalone classified params:", OTHER_PARAMS)
 
 # -------------------------------------------------------------
-# 7. TREAT 0 AS MISSING FOR CMJ METRICS (prevents blank/0 skew)
+# 7. TREAT 0 AS MISSING FOR CMJ METRICS
 # -------------------------------------------------------------
 for c in ALL_PARAMS:
     if c in df.columns:
@@ -112,10 +114,14 @@ for c in ALL_PARAMS:
         df.loc[df[c] == 0, c] = np.nan
 
 # -------------------------------------------------------------
-# 8. PARAMETER-LEVEL ROLLING CLASSIFICATION (SAME RULES AS SLJ)
+# 8. PARAMETER-LEVEL ROLLING CLASSIFICATION
 #    - ignore missing days
 #    - first 2 valid trials per player+param => z=0 => class Avg
 #    - add "{param}_avg_prev" rounded 1 decimal
+#
+# IMPORTANT: Depth is now POSITIVE in your dataset:
+#   High depth = deeper = bigger value => z>=1 => High
+#   Low  depth = shallower = smaller value => z<=-1 => Low
 # -------------------------------------------------------------
 def classify_z(z):
     if pd.isna(z):
@@ -126,17 +132,10 @@ def classify_z(z):
         return "Low"
     return "Avg"
 
-def classify_depth_z(z):
-    if pd.isna(z):
-        return "Avg"
-    if z >= 1:
-        return "High"
-    if z <= -1:
-        return "Low"
-    return "Avg"
-
-
 for param in ALL_PARAMS:
+    if param not in df.columns:
+        continue
+
     g = df.groupby(PLAYER_COL)[param]
 
     count_prev = (
@@ -172,71 +171,126 @@ for param in ALL_PARAMS:
     z.loc[mask_force_avg] = 0.0
 
     df[f"{param}_z"] = z
-
-    if param == "Countermovement Depth [cm]":
-        df[f"{param}_class"] = df[f"{param}_z"].apply(classify_depth_z)
-    else:
-        df[f"{param}_class"] = df[f"{param}_z"].apply(classify_z)
+    df[f"{param}_class"] = df[f"{param}_z"].apply(classify_z)
 
 # -------------------------------------------------------------
 # 9. DAY-LEVEL GENERATION & ABSORPTION CLASSIFICATION
-#    - if the required RAW inputs for that day are missing => overall class blank
+#    - if required RAW inputs missing => overall class blank
+#    - NEW: Generation overall now uses PD + DEP + PF with your updated logic
+#    - NEW: Absorption overall uses BD + DEP + BF with your updated logic
 # -------------------------------------------------------------
-def classify_generation(dur_class, force_class):
-    if pd.isna(dur_class) or pd.isna(force_class):
+def classify_generation(pd_class, dep_class, pf_class):
+    if pd.isna(pd_class) or pd.isna(dep_class) or pd.isna(pf_class):
         return ""
-    d, f = dur_class, force_class
+    PD, DEP, PF = str(pd_class), str(dep_class), str(pf_class)
 
-    if d == "Avg" and f == "Avg":
+    # If PD & DEP both HIGH:
+    if PD == "High" and DEP == "High":
+        if PF == "High":
+            return "Avg"
+        if PF in ("Low", "Avg"):
+            return "Low"
+
+    # If PD & DEP both LOW:
+    if PD == "Low" and DEP == "Low":
+        if PF == "Low":
+            return "Avg"
+        if PF in ("High", "Avg"):
+            return "High"
+
+    # If exactly one of PD / DEP is HIGH:
+    if (PD == "High" and DEP == "Avg") or (PD == "Avg" and DEP == "High"):
+        if PD == "High" and DEP == "Avg":
+            # PD High + DEP Avg
+            if PF in ("Avg", "Low"):
+                return "Low"
+            if PF == "High":
+                return "High"
+        else:
+            # DEP High + PD Avg
+            if PF in ("Avg", "High"):
+                return "High"
+            if PF == "Low":
+                return "Low"
+
+    # If exactly one of PD / DEP is LOW:
+    if (PD == "Low" and DEP == "Avg") or (PD == "Avg" and DEP == "Low"):
+        if PD == "Low" and DEP == "Avg":
+            if PF == "Low":
+                return "Low"
+            # PF Avg or High
+            return "High"
+        else:
+            # DEP Low + PD Avg
+            if PF in ("Avg", "Low"):
+                return "Low"
+            if PF == "High":
+                return "High"
+
+    # PD & DEP both NORMAL:
+    if PD == "Avg" and DEP == "Avg":
+        if PF == "High":
+            return "High"
+        if PF == "Low":
+            return "Low"
         return "Avg"
 
-    if d == "Avg" and f == "Low":
-        return "Low"
-    if d == "High" and f == "Avg":
-        return "Low"
-    if d == "High" and f == "Low":
-        return "Low"
-    if d == "Low" and f == "Low":
-        return "Low"
-
-    if d == "High" and f == "High":
+    # If one HIGH, one LOW (PD vs DEP):
+    if PD == "Low" and DEP == "High":
         return "High"
-    if d == "Low" and f == "Avg":
-        return "High"
-    if d == "Avg" and f == "High":
-        return "High"
-    if d == "Low" and f == "High":
-        return "High"
+    if PD == "High" and DEP == "Low":
+        return "Low"
 
     return "Avg"
 
 def classify_absorption(bd_class, dep_class, bf_class):
     if pd.isna(bd_class) or pd.isna(dep_class) or pd.isna(bf_class):
         return ""
-    BD, DEP, BF = bd_class, dep_class, bf_class
+    BD, DEP, BF = str(bd_class), str(dep_class), str(bf_class)
 
+    # If BD & DEP both HIGH:
     if BD == "High" and DEP == "High":
+        if BF == "High":
+            return "Avg"
+        # BF Avg or Low
         return "High"
+
+    # If BD & DEP both LOW:
     if BD == "Low" and DEP == "Low":
+        if BF == "Low":
+            return "Avg"
+        # BF Avg or High
         return "Low"
 
-    if BD == "Low" and DEP == "High":
-        return "High"
-    if BD == "High" and DEP == "Low":
-        return "Low"
+    # If exactly one of BD/DEP is HIGH:
+    if (BD == "High" and DEP == "Avg") or (BD == "Avg" and DEP == "High"):
+        if BD == "High" and DEP == "Avg":
+            if BF in ("Avg", "Low"):
+                return "Low"
+            if BF == "High":
+                return "High"
+        else:
+            # DEP High + BD Avg
+            if BF in ("Avg", "High"):
+                return "High"
+            if BF == "Low":
+                return "Low"
 
-    if BD == "High" and DEP == "Avg":
-        return "Low"
+    # If exactly one of BD/DEP is LOW:
+    if (BD == "Low" and DEP == "Avg") or (BD == "Avg" and DEP == "Low"):
+        if BD == "Low" and DEP == "Avg":
+            if BF == "Low":
+                return "Low"
+            # BF Avg or High
+            return "High"
+        else:
+            # DEP Low + BD Avg
+            if BF in ("Avg", "Low"):
+                return "Low"
+            if BF == "High":
+                return "High"
 
-    if BD == "Avg" and DEP == "High":
-        return "Low" if BF == "Low" else "High"
-
-    if BD == "Low" and DEP == "Avg":
-        return "Low" if BF == "Low" else "High"
-
-    if BD == "Avg" and DEP == "Low":
-        return "High" if BF == "High" else "Low"
-
+    # BD & DEP both NORMAL:
     if BD == "Avg" and DEP == "Avg":
         if BF == "High":
             return "High"
@@ -244,31 +298,37 @@ def classify_absorption(bd_class, dep_class, bf_class):
             return "Low"
         return "Avg"
 
+    # If one HIGH, one LOW (BD vs DEP):
+    if BD == "Low" and DEP == "High":
+        return "High"
+    if BD == "High" and DEP == "Low":
+        return "Low"
+
     return "Avg"
 
-dur_col   = "Concentric Duration [ms]"
-force_col = "Concentric Mean Force / BM [N/kg]"
+# Column handles
+pd_col    = "Concentric Duration [ms]"
+pf_col    = "Concentric Mean Force / BM [N/kg]"
 bd_col    = "Braking Phase Duration [ms]"
 dep_col   = "Countermovement Depth [cm]"
 bf_col    = "Eccentric Mean Force / BM [N/kg]"
 
-dur_class_col   = f"{dur_col}_class"
-force_class_col = f"{force_col}_class"
-bd_class_col    = f"{bd_col}_class"
-dep_class_col   = f"{dep_col}_class"
-bf_class_col    = f"{bf_col}_class"
+pd_class_col = f"{pd_col}_class"
+pf_class_col = f"{pf_col}_class"
+bd_class_col = f"{bd_col}_class"
+dep_class_col = f"{dep_col}_class"
+bf_class_col = f"{bf_col}_class"
 
-# overall classes default blank
 df["Generation_Class"] = ""
 df["Absorption_Class"] = ""
 
-required_gen_raw = [c for c in [dur_col, force_col] if c in df.columns]
+required_gen_raw = [c for c in [pd_col, dep_col, pf_col] if c in df.columns]
 required_abs_raw = [c for c in [bd_col, dep_col, bf_col] if c in df.columns]
 
 if required_gen_raw:
     mask_gen = df[required_gen_raw].notna().all(axis=1)
     df.loc[mask_gen, "Generation_Class"] = df.loc[mask_gen].apply(
-        lambda r: classify_generation(r.get(dur_class_col), r.get(force_class_col)),
+        lambda r: classify_generation(r.get(pd_class_col), r.get(dep_class_col), r.get(pf_class_col)),
         axis=1
     )
 
@@ -280,8 +340,7 @@ if required_abs_raw:
     )
 
 # -------------------------------------------------------------
-# 10. DROP ROWS WITH NO CMJ DATA (MATCHES "LEG MASK" IDEA)
-#     Keep row only if ANY of the core CMJ metrics exists that day.
+# 10. DROP ROWS WITH NO CMJ DATA
 # -------------------------------------------------------------
 DATA_GATE_COLS = []
 for c in (["Jump Height (Imp-Mom) [cm]"] + GENERATION_PARAMS + ABSORPTION_PARAMS):
@@ -297,8 +356,8 @@ else:
 df = df.loc[CMJ_DATA_MASK].copy()
 
 # -------------------------------------------------------------
-# 11. BUILD GENERATION & ABSORPTION DATAFRAMES FOR PER-PLAYER TABLES
-#     (INCLUDES avg_prev columns)
+# 11. BUILD GENERATION & ABSORPTION DATAFRAMES
+#     - Generation now includes Depth (same values/classes as absorption)
 # -------------------------------------------------------------
 base_cols = [PLAYER_COL, DATE_COL]
 
@@ -588,6 +647,7 @@ for player in unique_players:
         "BW [KG]": "BW [KG]_class",
         "Jump Height (Imp-Mom) [cm]": "Jump Height (Imp-Mom) [cm]_class",
         "Concentric Duration [ms]": "Concentric Duration [ms]_class",
+        "Countermovement Depth [cm]": "Countermovement Depth [cm]_class",
         "Concentric Mean Force / BM [N/kg]": "Concentric Mean Force / BM [N/kg]_class",
     }
 
