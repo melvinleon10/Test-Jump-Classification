@@ -129,7 +129,7 @@ print("Saved unified team overview CSV to:", OUTPUT_SUMMARY_CSV)
 
 # ============================================================
 # 2) HTML GENERATION (Team Overview + Player Pages)
-#   ✅ UPDATED LOGIC FOR ABS + GEN + WORD DISPLAY
+#    UPDATED LOGIC FOR ABS + GEN + WORD DISPLAY
 # ============================================================
 
 JS_SORT_AND_TOOLTIP = r"""
@@ -446,7 +446,7 @@ def phrase_from_items(items, phase: str) -> str:
     return f"{dur} / {dep} / {frc}"
 
 # ============================================================
-# ✅ NEW LOGIC IMPLEMENTATION (exactly as you wrote)
+# NEW LOGIC IMPLEMENTATION
 # ============================================================
 def classify_generation_from_components(PD, DEP, PF) -> str:
     if PD not in ["High", "Low", "Avg"] or DEP not in ["High", "Low", "Avg"] or PF not in ["High", "Low", "Avg"]:
@@ -921,7 +921,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 
             if col == "BW [KG]":
                 bg, fg = classify_color(row_bw_cls)
-                title = f"CMJ Body Weight - hist mean: {mean_bw_cmj:.1f} kg" if mean_bw_cmj is not None else "CMJ Body Weight - no historical mean"
+                title = f"CMJ Body Weight - mean: {mean_bw_cmj:.1f} kg" if mean_bw_cmj is not None else "CMJ Body Weight - no historical mean"
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
@@ -930,7 +930,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 
             if col == "Jump Height (Imp-Mom) [cm]":
                 bg, fg = classify_color(row_cmj_jh_cls)
-                title = f"CMJ Jump Height - hist mean: {mean_jh_cmj:.1f} cm" if mean_jh_cmj is not None else "CMJ Jump Height - no historical mean"
+                title = f"CMJ Jump Height - mean: {mean_jh_cmj:.1f} cm" if mean_jh_cmj is not None else "CMJ Jump Height - no historical mean"
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
@@ -939,7 +939,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 
             if col == "Jump Height (Imp-Mom) [cm] (L)":
                 bg, fg = classify_color(row_sljL_jh_cls)
-                title = f"SLJ-L Jump Height - hist mean: {mean_jh_sljL:.1f} cm" if mean_jh_sljL is not None else "SLJ-L Jump Height - no historical mean"
+                title = f"SLJ-L Jump Height - mean: {mean_jh_sljL:.1f} cm" if mean_jh_sljL is not None else "SLJ-L Jump Height - no historical mean"
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
@@ -948,7 +948,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 
             if col == "Jump Height (Imp-Mom) [cm] (R)":
                 bg, fg = classify_color(row_sljR_jh_cls)
-                title = f"SLJ-R Jump Height - hist mean: {mean_jh_sljR:.1f} cm" if mean_jh_sljR is not None else "SLJ-R Jump Height - no historical mean"
+                title = f"SLJ-R Jump Height - mean: {mean_jh_sljR:.1f} cm" if mean_jh_sljR is not None else "SLJ-R Jump Height - no historical mean"
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
@@ -961,7 +961,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 
                 date_str, items = get_latest_phase_components(player, test_type, phase)
                 items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in items if lbl and cls)
-                tooltip_title = f"{test_type} {phase} (latest: {date_str})"
+                tooltip_title = f"{test_type} {phase} ({date_str})"
                 display_val = phrase_from_items(items, phase)
 
                 row_tds.append(
@@ -981,17 +981,95 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 <meta charset="utf-8">
 <title>Team CMJ / SLJ Overview</title>
 <style>
-body {{ font-family: Arial, sans-serif; margin: 20px; }}
-table {{ border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 12px; }}
-th, td {{ border: 1px solid #ccc; padding: 4px 6px; text-align: center; word-wrap: break-word; }}
-th {{ background-color: black; color: white; position: sticky; top: 0; z-index: 2; }}
-.sticky-name {{ position: sticky; left: 0; background-color: #f9f9f9; z-index: 1; text-align: left; }}
-a {{ color: inherit; text-decoration: none; font-weight: bold; }}
+/* ===== THEME COLORS ONLY (per your template) ===== */
+:root {{
+    --primary-100:#ED174C;
+    --primary-200:#ff5d78;
+    --primary-300:#ffcad8;
+    --accent-100:#FFFFFF;
+    --accent-200:#9b9b9b;
+    --text-100:#FFFFFF;
+    --text-200:#e0e0e0;
+    --bg-100:#1D428A;
+    --bg-200:#36529d;
+    --bg-300:#556cbb;
+}}
+
+body {{
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background: var(--bg-100);
+    color: var(--text-100);
+}}
+
+table {{
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+    font-size: 12px;
+    background: rgba(255,255,255,0.06); /* subtle card */
+}}
+
+th, td {{
+    border: 1px solid rgba(255,255,255,0.18);
+    padding: 4px 6px;
+    text-align: center;
+    word-wrap: break-word;
+}}
+
+th {{
+    background-color: var(--bg-300);
+    color: var(--text-100);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}}
+
+.sticky-name {{
+    position: sticky;
+    left: 0;
+    background-color: var(--bg-200);
+    z-index: 1;
+    text-align: left;
+}}
+
+a {{
+    color: inherit;
+    text-decoration: none;
+    font-weight: bold;
+}}
+
 a:hover {{ text-decoration: underline; }}
-tbody tr:nth-child(even) {{ background-color: #f5f5f5; }}
+
+tbody tr:nth-child(even) {{
+    background-color: rgba(255,255,255,0.06);
+}}
+
+tbody tr:nth-child(odd) {{
+    background-color: rgba(255,255,255,0.03);
+}}
+
 .player-link {{ display: inline-flex; align-items: center; gap: 8px; }}
-.player-avatar {{ width: 22px; height: 22px; border-radius: 50%; object-fit: cover; border: 1px solid #ccc; flex: 0 0 auto; }}
+
+.player-avatar {{
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(255,255,255,0.35);
+    flex: 0 0 auto;
+    background: rgba(255,255,255,0.08);
+}}
+
 .player-name-text {{ display: inline-block; }}
+
+/* headings */
+h1 {{
+    color: var(--text-100);
+}}
+p {{
+    color: var(--text-200);
+}}
 </style>
 </head>
 <body>
@@ -1066,12 +1144,12 @@ def build_player_history_html(player, out_path):
         avg_col = f"{value_col}_avg_prev"
         avg_val = row.get(avg_col, None)
         if avg_val is None or (isinstance(avg_val, float) and pd.isna(avg_val)) or str(avg_val) == "nan":
-            return f"{label} baseline mean: N/A (first test)"
+            return f"{label} mean: N/A (first test)"
         try:
             avg_str = format_number(value_col, avg_val)
         except Exception:
             avg_str = str(avg_val)
-        return f"{label} baseline mean: {avg_str}"
+        return f"{label} mean: {avg_str}"
 
     def build_section(title, df_daily, test_type):
         if df_daily is None or df_daily.empty:
@@ -1204,21 +1282,104 @@ def build_player_history_html(player, out_path):
 <meta charset="utf-8">
 <title>{html_escape(player)} - Jump History</title>
 <style>
-body {{ font-family: Arial, sans-serif; margin: 20px; }}
+/* ===== THEME COLORS ONLY (per your template) ===== */
+:root {{
+    --primary-100:#ED174C;
+    --primary-200:#ff5d78;
+    --primary-300:#ffcad8;
+    --accent-100:#FFFFFF;
+    --accent-200:#9b9b9b;
+    --text-100:#FFFFFF;
+    --text-200:#e0e0e0;
+    --bg-100:#1D428A;
+    --bg-200:#36529d;
+    --bg-300:#556cbb;
+}}
+
+body {{
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background: var(--bg-100);
+    color: var(--text-100);
+}}
+
 .page-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }}
-.back-link {{ display: inline-block; margin-top: 8px; color: #0055aa; text-decoration: none; }}
+
+.back-link {{
+    display: inline-block;
+    margin-top: 8px;
+    color: var(--primary-200);
+    text-decoration: none;
+}}
+
 .back-link:hover {{ text-decoration: underline; }}
+
 .player-identity {{ display: flex; align-items: center; gap: 10px; }}
-.player-identity img {{ width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 1px solid #ccc; }}
-.player-identity-name {{ font-weight: 800; font-size: 16px; white-space: nowrap; }}
 
-.table-pagination-controls {{ display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }}
-.table-pagination-controls select {{ font-size: 12px; }}
-.table-pagination-controls button {{ font-size: 11px; padding: 2px 6px; }}
+.player-identity img {{
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.08);
+}}
 
-table {{ border-collapse: collapse; width: 100%; table-layout: auto; font-size: 12px; margin-bottom: 20px; }}
-th, td {{ border: 1px solid #ccc; padding: 4px 6px; text-align: center; }}
-th {{ background-color: black; color: white; }}
+.player-identity-name {{
+    font-weight: 800;
+    font-size: 16px;
+    white-space: nowrap;
+}}
+
+.table-pagination-controls {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--text-200);
+}}
+
+.table-pagination-controls select {{
+    font-size: 12px;
+    background: rgba(255,255,255,0.10);
+    color: var(--text-100);
+    border: 1px solid rgba(255,255,255,0.18);
+}}
+
+.table-pagination-controls button {{
+    font-size: 11px;
+    padding: 2px 6px;
+    background: rgba(255,255,255,0.10);
+    color: var(--text-100);
+    border: 1px solid rgba(255,255,255,0.18);
+}}
+
+table {{
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: auto;
+    font-size: 12px;
+    margin-bottom: 20px;
+    background: rgba(255,255,255,0.06);
+}}
+
+th, td {{
+    border: 1px solid rgba(255,255,255,0.18);
+    padding: 4px 6px;
+    text-align: center;
+}}
+
+th {{
+    background-color: var(--bg-300);
+    color: var(--text-100);
+}}
+
+tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
+tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
+
+h1, h2 {{ color: var(--text-100); }}
+p {{ color: var(--text-200); }}
 </style>
 </head>
 <body>
