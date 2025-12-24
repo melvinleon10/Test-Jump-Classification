@@ -983,16 +983,16 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 <style>
 /* ===== THEME COLORS ONLY (per your template) ===== */
 :root {{
-    --primary-100:#ED174C;
-    --primary-200:#ff5d78;
-    --primary-300:#ffcad8;
+    --primary-100:#CE0E2D;
+    --primary-200:#CE0E2D;
+    --primary-300:#CE0E2D;
     --accent-100:#FFFFFF;
     --accent-200:#9b9b9b;
     --text-100:#FFFFFF;
     --text-200:#e0e0e0;
-    --bg-100:#1D428A;
-    --bg-200:#36529d;
-    --bg-300:#556cbb;
+    --bg-100:#0A2240;
+    --bg-200:#3A8DDE;
+    --bg-300:#3A8DDE;
 }}
 
 body {{
@@ -1284,16 +1284,16 @@ def build_player_history_html(player, out_path):
 <style>
 /* ===== THEME COLORS ONLY (per your template) ===== */
 :root {{
-    --primary-100:#ED174C;
-    --primary-200:#ff5d78;
-    --primary-300:#ffcad8;
+    --primary-100:#CE0E2D;
+    --primary-200:#CE0E2D;
+    --primary-300:#CE0E2D;
     --accent-100:#FFFFFF;
     --accent-200:#9b9b9b;
     --text-100:#FFFFFF;
     --text-200:#e0e0e0;
-    --bg-100:#1D428A;
-    --bg-200:#36529d;
-    --bg-300:#556cbb;
+    --bg-100:#0A2240;
+    --bg-200:#3A8DDE;
+    --bg-300:#3A8DDE;
 }}
 
 body {{
