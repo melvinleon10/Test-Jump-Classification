@@ -129,7 +129,6 @@ print("Saved unified team overview CSV to:", OUTPUT_SUMMARY_CSV)
 
 # ============================================================
 # 2) HTML GENERATION (Team Overview + Player Pages)
-#    UPDATED: View toggler now works for Index AND Player pages
 # ============================================================
 
 JS_SORT_AND_TOOLTIP = r"""
@@ -1079,7 +1078,7 @@ p  {{ color: var(--text-200); }}
     <p>
       Hover over Absorption & Generation cells to see component classes.
       Click a player name to open their history.
-      Use the toggle to switch Summary (arrows) vs Advanced (words).
+      Use the toggle to switch between Summary vs Advanced.
     </p>
   </div>
 
@@ -1107,8 +1106,6 @@ p  {{ color: var(--text-200); }}
 
 # ============================================================
 # PLAYER HISTORY HTML
-#   UPDATED: Absorption/Generation cells now have Summary(arrow) + Advanced(words)
-#   UPDATED: adds same top-right toggler on player pages
 # ============================================================
 def build_player_history_html(player, out_path):
     sections = []
@@ -1461,7 +1458,7 @@ p {{ color: var(--text-200); }}
 <div class="topbar">
   <div>
     <p style="margin:0;">
-      Toggle Summary (arrows) vs Advanced (words) for Absorption / Generation.
+      Toggle Summary vs Advanced
     </p>
   </div>
   <div class="view-toggle" title="Switch between arrow view and word view">
