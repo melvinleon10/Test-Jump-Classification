@@ -129,7 +129,7 @@ print("Saved unified team overview CSV to:", OUTPUT_SUMMARY_CSV)
 
 # ============================================================
 # 2) HTML GENERATION (Team Overview + Player Pages)
-#    UPDATED LOGIC FOR ABS + GEN + WORD DISPLAY
+#    UPDATED: View toggler now works for Index AND Player pages
 # ============================================================
 
 JS_SORT_AND_TOOLTIP = r"""
@@ -353,10 +353,43 @@ function initPagination() {
     });
 }
 
+// ---------- View Toggle (Summary vs Advanced) ----------
+function setOverviewView(mode) {
+    const summaryEls = document.querySelectorAll(".view-summary");
+    const advancedEls = document.querySelectorAll(".view-advanced");
+    const btnSum = document.getElementById("btn-view-summary");
+    const btnAdv = document.getElementById("btn-view-advanced");
+
+    if (mode === "summary") {
+        summaryEls.forEach(el => el.style.display = "");
+        advancedEls.forEach(el => el.style.display = "none");
+        if (btnSum) btnSum.classList.add("active");
+        if (btnAdv) btnAdv.classList.remove("active");
+    } else {
+        summaryEls.forEach(el => el.style.display = "none");
+        advancedEls.forEach(el => el.style.display = "");
+        if (btnAdv) btnAdv.classList.add("active");
+        if (btnSum) btnSum.classList.remove("active");
+    }
+    try { localStorage.setItem("overviewViewMode", mode); } catch(e) {}
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     makeTablesSortable();
     attachMetricTooltips();
     initPagination();
+
+    let mode = "summary";
+    try {
+        const saved = localStorage.getItem("overviewViewMode");
+        if (saved === "advanced" || saved === "summary") mode = saved;
+    } catch(e) {}
+    setOverviewView(mode);
+
+    const btnSum = document.getElementById("btn-view-summary");
+    const btnAdv = document.getElementById("btn-view-advanced");
+    if (btnSum) btnSum.addEventListener("click", () => setOverviewView("summary"));
+    if (btnAdv) btnAdv.addEventListener("click", () => setOverviewView("advanced"));
 });
 """
 
@@ -370,6 +403,16 @@ def classify_color(class_val):
     v = str(class_val)
     colors = COLOR_MAP_PY.get(v, COLOR_MAP_PY["Avg"])
     return (colors["bg"], colors["text"])
+
+def arrow_for_class(cls: str) -> str:
+    c = str(cls)
+    if c == "High":
+        return "↑"
+    if c == "Low":
+        return "↓"
+    if c == "Avg":
+        return "-"
+    return ""
 
 def safe_player_filename(name):
     safe = "".join(c if c.isalnum() or c in " _-" else "_" for c in str(name))
@@ -446,140 +489,70 @@ def phrase_from_items(items, phase: str) -> str:
     return f"{dur} / {dep} / {frc}"
 
 # ============================================================
-# NEW LOGIC IMPLEMENTATION
+# NEW LOGIC IMPLEMENTATION (unchanged)
 # ============================================================
 def classify_generation_from_components(PD, DEP, PF) -> str:
     if PD not in ["High", "Low", "Avg"] or DEP not in ["High", "Low", "Avg"] or PF not in ["High", "Low", "Avg"]:
         return ""
-
-    # If PD & DEP both HIGH
     if PD == "High" and DEP == "High":
-        if PF == "Avg":
-            return "Low"
-        if PF == "Low":
-            return "Low"
-        if PF == "High":
-            return "Avg"
-
-    # If PD & DEP both LOW
+        if PF in ["Avg", "Low"]: return "Low"
+        if PF == "High": return "Avg"
     if PD == "Low" and DEP == "Low":
-        if PF == "Avg":
-            return "High"
-        if PF == "Low":
-            return "Avg"
-        if PF == "High":
-            return "High"
-
-    # If exactly one of PD/DEP is HIGH
+        if PF == "Avg": return "High"
+        if PF == "Low": return "Avg"
+        if PF == "High": return "High"
     if PD == "High" and DEP == "Avg":
-        if PF in ["Avg", "Low"]:
-            return "Low"
-        if PF == "High":
-            return "High"
-
+        if PF in ["Avg", "Low"]: return "Low"
+        if PF == "High": return "High"
     if DEP == "High" and PD == "Avg":
-        if PF == "Avg":
-            return "High"
-        if PF == "Low":
-            return "Low"
-        if PF == "High":
-            return "High"
-
-    # If exactly one of PD/DEP is LOW
+        if PF == "Avg": return "High"
+        if PF == "Low": return "Low"
+        if PF == "High": return "High"
     if PD == "Low" and DEP == "Avg":
-        if PF == "Avg":
-            return "High"
-        if PF == "Low":
-            return "Low"
-        if PF == "High":
-            return "High"
-
+        if PF == "Avg": return "High"
+        if PF == "Low": return "Low"
+        if PF == "High": return "High"
     if DEP == "Low" and PD == "Avg":
-        if PF in ["Avg", "Low"]:
-            return "Low"
-        if PF == "High":
-            return "High"
-
-    # PD & DEP both NORMAL
+        if PF in ["Avg", "Low"]: return "Low"
+        if PF == "High": return "High"
     if PD == "Avg" and DEP == "Avg":
-        if PF == "High":
-            return "High"
-        if PF == "Low":
-            return "Low"
+        if PF == "High": return "High"
+        if PF == "Low": return "Low"
         return "Avg"
-
-    # If one HIGH, one LOW (PD vs DEP)
-    if PD == "Low" and DEP == "High":
-        return "High"
-    if PD == "High" and DEP == "Low":
-        return "Low"
-
+    if PD == "Low" and DEP == "High": return "High"
+    if PD == "High" and DEP == "Low": return "Low"
     return "Avg"
 
 def classify_absorption_from_components(BD, DEP, BF) -> str:
     if BD not in ["High", "Low", "Avg"] or DEP not in ["High", "Low", "Avg"] or BF not in ["High", "Low", "Avg"]:
         return ""
-
-    # If BD & DEP both HIGH
     if BD == "High" and DEP == "High":
-        if BF in ["Avg", "Low"]:
-            return "High"
-        if BF == "High":
-            return "Avg"
-
-    # If BD & DEP both LOW
+        if BF in ["Avg", "Low"]: return "High"
+        if BF == "High": return "Avg"
     if BD == "Low" and DEP == "Low":
-        if BF == "Avg":
-            return "Low"
-        if BF == "Low":
-            return "Avg"
-        if BF == "High":
-            return "Low"
-
-    # If exactly one of BD/DEP is HIGH
+        if BF == "Avg": return "Low"
+        if BF == "Low": return "Avg"
+        if BF == "High": return "Low"
     if BD == "High" and DEP == "Avg":
-        if BF in ["Avg", "Low"]:
-            return "Low"
-        if BF == "High":
-            return "High"
-
+        if BF in ["Avg", "Low"]: return "Low"
+        if BF == "High": return "High"
     if DEP == "High" and BD == "Avg":
-        if BF == "Avg":
-            return "High"
-        if BF == "Low":
-            return "Low"
-        if BF == "High":
-            return "High"
-
-    # If exactly one of BD/DEP is LOW
+        if BF == "Avg": return "High"
+        if BF == "Low": return "Low"
+        if BF == "High": return "High"
     if BD == "Low" and DEP == "Avg":
-        if BF == "Avg":
-            return "High"
-        if BF == "Low":
-            return "Low"
-        if BF == "High":
-            return "High"
-
+        if BF == "Avg": return "High"
+        if BF == "Low": return "Low"
+        if BF == "High": return "High"
     if DEP == "Low" and BD == "Avg":
-        if BF in ["Avg", "Low"]:
-            return "Low"
-        if BF == "High":
-            return "High"
-
-    # BD & DEP both NORMAL
+        if BF in ["Avg", "Low"]: return "Low"
+        if BF == "High": return "High"
     if BD == "Avg" and DEP == "Avg":
-        if BF == "High":
-            return "High"
-        if BF == "Low":
-            return "Low"
+        if BF == "High": return "High"
+        if BF == "Low": return "Low"
         return "Avg"
-
-    # If one HIGH, one LOW (BD vs DEP)
-    if BD == "Low" and DEP == "High":
-        return "High"
-    if BD == "High" and DEP == "Low":
-        return "Low"
-
+    if BD == "Low" and DEP == "High": return "High"
+    if BD == "High" and DEP == "Low": return "Low"
     return "Avg"
 
 # ============================================================
@@ -712,9 +685,6 @@ cmj_daily = standardize_test_df(merge_daily(cmj_gen, cmj_abs), "CMJ")
 sljL_daily = standardize_test_df(merge_daily(sljL_gen, sljL_abs), "SLJ_L")
 sljR_daily = standardize_test_df(merge_daily(sljR_gen, sljR_abs), "SLJ_R")
 
-# ============================================================
-# Recompute overall classes per row using your UPDATED logic
-# ============================================================
 def recompute_overall_phase_classes(df_daily, test_type: str):
     if df_daily is None or df_daily.empty:
         return df_daily
@@ -962,11 +932,16 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 date_str, items = get_latest_phase_components(player, test_type, phase)
                 items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in items if lbl and cls)
                 tooltip_title = f"{test_type} {phase} ({date_str})"
-                display_val = phrase_from_items(items, phase)
+
+                summary_disp = arrow_for_class(val_str)
+                advanced_disp = phrase_from_items(items, phase)
 
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                    f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">{html_escape(display_val)}</td>'
+                    f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">'
+                    f'  <span class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</span>'
+                    f'  <span class="view-advanced" style="display:none;">{html_escape(advanced_disp)}</span>'
+                    f'</td>'
                 )
                 continue
 
@@ -981,7 +956,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 <meta charset="utf-8">
 <title>Team CMJ / SLJ Overview</title>
 <style>
-/* ===== THEME COLORS ONLY (per your template) ===== */
 :root {{
     --primary-100:#CE0E2D;
     --primary-200:#CE0E2D;
@@ -1007,7 +981,7 @@ table {{
     width: 100%;
     table-layout: fixed;
     font-size: 12px;
-    background: rgba(255,255,255,0.06); /* subtle card */
+    background: rgba(255,255,255,0.06);
 }}
 
 th, td {{
@@ -1041,13 +1015,8 @@ a {{
 
 a:hover {{ text-decoration: underline; }}
 
-tbody tr:nth-child(even) {{
-    background-color: rgba(255,255,255,0.06);
-}}
-
-tbody tr:nth-child(odd) {{
-    background-color: rgba(255,255,255,0.03);
-}}
+tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
+tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
 
 .player-link {{ display: inline-flex; align-items: center; gap: 8px; }}
 
@@ -1063,19 +1032,63 @@ tbody tr:nth-child(odd) {{
 
 .player-name-text {{ display: inline-block; }}
 
-/* headings */
-h1 {{
-    color: var(--text-100);
+h1 {{ color: var(--text-100); }}
+p  {{ color: var(--text-200); }}
+
+.topbar {{
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
 }}
-p {{
+.view-toggle {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.08);
+}}
+.view-toggle .label {{
+    font-size: 11px;
     color: var(--text-200);
+    margin-right: 4px;
+}}
+.view-toggle button {{
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.10);
+    color: var(--text-100);
+    cursor: pointer;
+}}
+.view-toggle button.active {{
+    background: var(--primary-200);
+    border-color: rgba(0,0,0,0.0);
 }}
 </style>
 </head>
 <body>
 
-<h1>CMJ & SLJ Team Overview</h1>
-<p>Hover over Absorption & Generation cells to see component classes. Click on Individual Player name to view their history.</p>
+<div class="topbar">
+  <div>
+    <h1>CMJ & SLJ Team Overview</h1>
+    <p>
+      Hover over Absorption & Generation cells to see component classes.
+      Click a player name to open their history.
+      Use the toggle to switch Summary (arrows) vs Advanced (words).
+    </p>
+  </div>
+
+  <div class="view-toggle" title="Switch between arrow view and word view">
+    <span class="label">View:</span>
+    <button id="btn-view-summary" type="button">Summary</button>
+    <button id="btn-view-advanced" type="button">Advanced</button>
+  </div>
+</div>
 
 <table class="sortable-table">
     <thead><tr>{header_cells}</tr></thead>
@@ -1093,7 +1106,9 @@ p {{
     print("Saved team overview HTML to:", out_path)
 
 # ============================================================
-# PLAYER HISTORY HTML (same replacement in Abs/Gen cells)
+# PLAYER HISTORY HTML
+#   UPDATED: Absorption/Generation cells now have Summary(arrow) + Advanced(words)
+#   UPDATED: adds same top-right toggler on player pages
 # ============================================================
 def build_player_history_html(player, out_path):
     sections = []
@@ -1232,17 +1247,25 @@ def build_player_history_html(player, out_path):
                     tds.append(f"<td>{html_escape(date_str)}</td>")
                     continue
 
+                # ---- UPDATED: Abs/Gen cells support Summary(arrow) + Advanced(words) ----
                 if c in [gen_col, abs_col]:
                     cls_val = "" if pd.isna(v) else str(v)
                     bg, fg = classify_color(cls_val)
                     phase = "Generation" if c == gen_col else "Absorption"
+
                     items = get_row_phase_items(r, test_type, phase)
                     items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in items if lbl and cls)
                     tooltip_title = f"{test_type} {phase} ({date_str})"
-                    disp = phrase_from_items(items, phase)
+
+                    summary_disp = arrow_for_class(cls_val)
+                    advanced_disp = phrase_from_items(items, phase)
+
                     tds.append(
                         f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                        f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">{html_escape(disp)}</td>'
+                        f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">'
+                        f'  <span class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</span>'
+                        f'  <span class="view-advanced" style="display:none;">{html_escape(advanced_disp)}</span>'
+                        f'</td>'
                     )
                     continue
 
@@ -1282,7 +1305,6 @@ def build_player_history_html(player, out_path):
 <meta charset="utf-8">
 <title>{html_escape(player)} - Jump History</title>
 <style>
-/* ===== THEME COLORS ONLY (per your template) ===== */
 :root {{
     --primary-100:#CE0E2D;
     --primary-200:#CE0E2D;
@@ -1303,7 +1325,12 @@ body {{
     color: var(--text-100);
 }}
 
-.page-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }}
+.page-header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}}
 
 .back-link {{
     display: inline-block;
@@ -1329,6 +1356,42 @@ body {{
     font-weight: 800;
     font-size: 16px;
     white-space: nowrap;
+}}
+
+.topbar {{
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 10px 0 12px 0;
+}}
+
+.view-toggle {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.08);
+}}
+.view-toggle .label {{
+    font-size: 11px;
+    color: var(--text-200);
+    margin-right: 4px;
+}}
+.view-toggle button {{
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.10);
+    color: var(--text-100);
+    cursor: pointer;
+}}
+.view-toggle button.active {{
+    background: var(--primary-200);
+    border-color: rgba(0,0,0,0.0);
 }}
 
 .table-pagination-controls {{
@@ -1393,6 +1456,19 @@ p {{ color: var(--text-200); }}
         <img src="{player_img}" alt="{html_escape(player)}" onerror="this.style.display='none';" />
         <div class="player-identity-name">{html_escape(player)}</div>
     </div>
+</div>
+
+<div class="topbar">
+  <div>
+    <p style="margin:0;">
+      Toggle Summary (arrows) vs Advanced (words) for Absorption / Generation.
+    </p>
+  </div>
+  <div class="view-toggle" title="Switch between arrow view and word view">
+    <span class="label">View:</span>
+    <button id="btn-view-summary" type="button">Summary</button>
+    <button id="btn-view-advanced" type="button">Advanced</button>
+  </div>
 </div>
 
 {"".join(sections)}
