@@ -128,7 +128,7 @@ summary.to_csv(OUTPUT_SUMMARY_CSV, index=False)
 print("Saved unified team overview CSV to:", OUTPUT_SUMMARY_CSV)
 
 # ============================================================
-# 2) HTML GENERATION (Team Overview + Player Pages)
+# 2) HTML GENERATION
 # ============================================================
 
 JS_SORT_AND_TOOLTIP = r"""
@@ -398,20 +398,24 @@ COLOR_MAP_PY = {
     "Avg":  {"bg": "#D3D3D3", "text": "black"},
 }
 
+def normalize_class(v) -> str:
+    s = "" if v is None else str(v).strip()
+    if s in ("High", "Low", "Avg"):
+        return s
+    return "Avg"
+
 def classify_color(class_val):
-    v = str(class_val)
+    v = normalize_class(class_val)
     colors = COLOR_MAP_PY.get(v, COLOR_MAP_PY["Avg"])
     return (colors["bg"], colors["text"])
 
 def arrow_for_class(cls: str) -> str:
-    c = str(cls)
+    c = normalize_class(cls)
     if c == "High":
         return "↑"
     if c == "Low":
         return "↓"
-    if c == "Avg":
-        return "-"
-    return ""
+    return "-"
 
 def safe_player_filename(name):
     safe = "".join(c if c.isalnum() or c in " _-" else "_" for c in str(name))
@@ -439,20 +443,40 @@ DURATION_COLS = {
     "Concentric Duration [ms] (R)",
     "Braking Phase Duration [ms] (R)",
 }
+
 def format_number(col, val):
     try:
         x = float(val)
     except Exception:
         return str(val)
+    if pd.isna(x):
+        return ""
     if col in DURATION_COLS:
         return f"{round(x):.0f}"
     return f"{x:.1f}"
 
+def format_z(z):
+    try:
+        x = float(z)
+    except Exception:
+        return ""
+    if pd.isna(x):
+        return ""
+    return f"{x:.2f}"
+
+def unit_from_col(col: str) -> str:
+    s = str(col)
+    i1 = s.find("[")
+    i2 = s.find("]")
+    if i1 != -1 and i2 != -1 and i2 > i1:
+        return s[i1+1:i2].strip()
+    return ""
+
 # ============================================================
-# WORD DISPLAY (unchanged)
+# WORD DISPLAY (bring back old words, unbolded, stacked)
 # ============================================================
 def word_for_duration(cls: str) -> str:
-    c = str(cls)
+    c = normalize_class(cls)
     if c == "Low":
         return "Quicker"
     if c == "High":
@@ -460,7 +484,7 @@ def word_for_duration(cls: str) -> str:
     return "Normal"
 
 def word_for_force(cls: str) -> str:
-    c = str(cls)
+    c = normalize_class(cls)
     if c == "High":
         return "Stronger"
     if c == "Low":
@@ -468,24 +492,35 @@ def word_for_force(cls: str) -> str:
     return "Normal"
 
 def word_for_depth(cls: str) -> str:
-    c = str(cls)
+    c = normalize_class(cls)
     if c == "High":
         return "Deeper"
     if c == "Low":
         return "Shallower"
     return "Normal"
 
-def phrase_from_items(items, phase: str) -> str:
-    label_to_cls = {lbl: cls for (lbl, cls) in items if lbl}
-    if phase == "Absorption":
-        dur = word_for_duration(label_to_cls.get("BD", "Avg"))
-        dep = word_for_depth(label_to_cls.get("DEP", "Avg"))
-        frc = word_for_force(label_to_cls.get("BF", "Avg"))
-    else:
-        dur = word_for_duration(label_to_cls.get("PD", "Avg"))
-        dep = word_for_depth(label_to_cls.get("DEP", "Avg"))
-        frc = word_for_force(label_to_cls.get("PF", "Avg"))
-    return f"{dur} / {dep} / {frc}"
+def label_to_word(lbl: str, cls: str) -> str:
+    if lbl in ("PD", "BD"):
+        return word_for_duration(cls)
+    if lbl == "DEP":
+        return word_for_depth(cls)
+    if lbl in ("PF", "BF"):
+        return word_for_force(cls)
+    return "Normal"
+
+def pretty_lbl(lbl: str) -> str:
+    return {"PD":"Duration", "BD":"Duration", "DEP":"Depth", "PF":"Force", "BF":"Force"}.get(lbl, lbl)
+
+def value_unit_z_text(colname: str, value, z) -> str:
+    v_str = "" if pd.isna(value) else format_number(colname, value)
+    if v_str == "":
+        return ""
+    unit = unit_from_col(colname)
+    unit_str = f" {unit}" if unit else ""
+    z_str = format_z(z)
+    if z_str == "":
+        return f"{v_str}{unit_str}"
+    return f"{v_str}{unit_str} (Z: {z_str})"
 
 # ============================================================
 # NEW LOGIC IMPLEMENTATION (unchanged)
@@ -616,6 +651,13 @@ def coalesce_columns(df, base_name):
             if cand in df.columns:
                 df[avg_prev] = df[cand]
                 break
+    # Optional: z columns if they exist
+    z_col = base_name + "_z"
+    if z_col not in df.columns:
+        for cand in [z_col + "_GEN", z_col + "_ABS", z_col + "_x", z_col + "_y"]:
+            if cand in df.columns:
+                df[z_col] = df[cand]
+                break
 
 def coalesce_simple(df, col_base):
     if col_base in df.columns:
@@ -708,7 +750,7 @@ def recompute_overall_phase_classes(df_daily, test_type: str):
         bf_col = "Eccentric Mean Force / BM [N/kg] (R)"
 
     def cls_of(row, base):
-        return row.get(f"{base}_class", "")
+        return normalize_class(row.get(f"{base}_class", "Avg"))
 
     if all(f"{c}_class" in df_daily.columns for c in [pd_col, dep_col, pf_col]):
         df_daily["Generation_Class"] = df_daily.apply(
@@ -729,7 +771,114 @@ sljL_daily = recompute_overall_phase_classes(sljL_daily, "SLJ_L")
 sljR_daily = recompute_overall_phase_classes(sljR_daily, "SLJ_R")
 
 # ============================================================
-# Helper funcs used by HTML build
+# Phase component mapping
+# ============================================================
+def phase_component_columns(test_type, phase):
+    if test_type == "CMJ":
+        PD = "Concentric Duration [ms]"
+        PF = "Concentric Mean Force / BM [N/kg]"
+        BD = "Braking Phase Duration [ms]"
+        DEP = "Countermovement Depth [cm]"
+        BF = "Eccentric Mean Force / BM [N/kg]"
+    elif test_type == "SLJ_L":
+        PD = "Concentric Duration [ms] (L)"
+        PF = "Concentric Mean Force / BM [N/kg] (L)"
+        BD = "Braking Phase Duration [ms] (L)"
+        DEP = "Countermovement Depth [cm] (L)"
+        BF = "Eccentric Mean Force / BM [N/kg] (L)"
+    else:
+        PD = "Concentric Duration [ms] (R)"
+        PF = "Concentric Mean Force / BM [N/kg] (R)"
+        BD = "Braking Phase Duration [ms] (R)"
+        DEP = "Countermovement Depth [cm] (R)"
+        BF = "Eccentric Mean Force / BM [N/kg] (R)"
+
+    if phase == "Generation":
+        return [("PD", PD), ("DEP", DEP), ("PF", PF)]
+    return [("BD", BD), ("DEP", DEP), ("BF", BF)]
+
+# ============================================================
+# Z-score fallback computation (per player, per test_type, per param)
+#   Only used if "<param>_z" is missing.
+# ============================================================
+def z_fallback_for_player(df_all, player, value_col):
+    if df_all is None or df_all.empty or value_col not in df_all.columns:
+        return None
+    sub = df_all[df_all[PLAYER_COL] == player].copy()
+    if sub.empty:
+        return None
+    x = pd.to_numeric(sub[value_col], errors="coerce")
+    mu = x.mean()
+    sd = x.std(ddof=1)
+    if pd.isna(sd) or sd == 0 or pd.isna(mu):
+        return None
+    # return series indexed same as sub
+    return (x - mu) / sd
+
+def get_df_for_test(test_type):
+    return cmj_daily if test_type == "CMJ" else sljL_daily if test_type == "SLJ_L" else sljR_daily
+
+def get_latest_phase_components(player, test_type, phase):
+    df = get_df_for_test(test_type)
+    if df is None or df.empty:
+        return ("", [], [])
+    sub = df[df[PLAYER_COL] == player].copy()
+    if sub.empty:
+        return ("", [], [])
+    sub = sub.sort_values(DATE_COL)
+    last = sub.iloc[-1]
+    date_val = last.get(DATE_COL, None)
+    date_str = date_val.strftime("%Y-%m-%d") if isinstance(date_val, pd.Timestamp) else ""
+
+    mapping = phase_component_columns(test_type, phase)
+
+    # build tooltip chips + advanced lines data
+    tooltip_items = []
+    adv_items = []
+
+    # fallback z series for each param, if needed
+    for lbl, col in mapping:
+        cls = normalize_class(last.get(f"{col}_class", "Avg"))
+        tooltip_items.append((lbl, cls))
+
+        val = last.get(col, None)
+
+        z_val = last.get(f"{col}_z", None)
+        if z_val is None or (isinstance(z_val, float) and pd.isna(z_val)) or str(z_val) == "nan":
+            # compute fallback z from player history
+            z_series = z_fallback_for_player(df, player, col)
+            if z_series is not None:
+                # match last row by date (safe-ish) - use last element of z_series in sorted sub
+                z_val = z_series.iloc[-1]
+
+        adv_items.append({"lbl": lbl, "cls": cls, "col": col, "val": val, "z": z_val})
+
+    return (date_str, tooltip_items, adv_items)
+
+def build_advanced_phase_html(adv_items):
+    # stacked lines, NOT bold, colored by cls, includes word + value/unit + (Z:__)
+    lines = []
+    for it in adv_items:
+        lbl = it["lbl"]
+        cls = normalize_class(it["cls"])
+        col = it["col"]
+        val = it["val"]
+        z = it["z"]
+
+        word = label_to_word(lbl, cls)
+        detail = value_unit_z_text(col, val, z)
+        fg = classify_color(cls)[1]
+
+        if detail:
+            txt = f"{pretty_lbl(lbl)}: {word} — {detail}"
+        else:
+            txt = f"{pretty_lbl(lbl)}: {word}"
+
+        lines.append(f"<div class='adv-line' style='color:{fg};'>{html_escape(txt)}</div>")
+    return "".join(lines)
+
+# ============================================================
+# TEAM OVERVIEW HTML
 # ============================================================
 def get_param_mean(player, test_type, param_col):
     df = cmj_daily if test_type == "CMJ" else sljL_daily if test_type == "SLJ_L" else sljR_daily
@@ -752,59 +901,7 @@ def get_latest_param_class(player, test_type, param_col):
     last = sub.iloc[-1]
     return last.get(f"{param_col}_class", None)
 
-def get_latest_bw_jh_class(player):
-    if cmj_daily.empty:
-        return (None, None)
-    sub = cmj_daily[cmj_daily[PLAYER_COL] == player].copy()
-    if sub.empty:
-        return (None, None)
-    sub = sub.sort_values(DATE_COL)
-    last = sub.iloc[-1]
-    return (last.get("BW [KG]_class", None), last.get("Jump Height (Imp-Mom) [cm]_class", None))
 
-def get_latest_phase_components(player, test_type, phase):
-    df = cmj_daily if test_type == "CMJ" else sljL_daily if test_type == "SLJ_L" else sljR_daily
-    if df is None or df.empty:
-        return ("", [])
-
-    if test_type == "CMJ":
-        pd_col = "Concentric Duration [ms]"
-        pf_col = "Concentric Mean Force / BM [N/kg]"
-        bd_col = "Braking Phase Duration [ms]"
-        dep_col = "Countermovement Depth [cm]"
-        bf_col = "Eccentric Mean Force / BM [N/kg]"
-    elif test_type == "SLJ_L":
-        pd_col = "Concentric Duration [ms] (L)"
-        pf_col = "Concentric Mean Force / BM [N/kg] (L)"
-        bd_col = "Braking Phase Duration [ms] (L)"
-        dep_col = "Countermovement Depth [cm] (L)"
-        bf_col = "Eccentric Mean Force / BM [N/kg] (L)"
-    else:
-        pd_col = "Concentric Duration [ms] (R)"
-        pf_col = "Concentric Mean Force / BM [N/kg] (R)"
-        bd_col = "Braking Phase Duration [ms] (R)"
-        dep_col = "Countermovement Depth [cm] (R)"
-        bf_col = "Eccentric Mean Force / BM [N/kg] (R)"
-
-    sub = df[df[PLAYER_COL] == player].copy()
-    if sub.empty:
-        return ("", [])
-
-    sub = sub.sort_values(DATE_COL)
-    last = sub.iloc[-1]
-    date_val = last.get(DATE_COL, None)
-    date_str = date_val.strftime("%Y-%m-%d") if isinstance(date_val, pd.Timestamp) else ""
-
-    def get_class(col_name):
-        return last.get(f"{col_name}_class", "")
-
-    if phase == "Generation":
-        return (date_str, [("PD", get_class(pd_col)), ("DEP", get_class(dep_col)), ("PF", get_class(pf_col))])
-    return (date_str, [("BD", get_class(bd_col)), ("DEP", get_class(dep_col)), ("BF", get_class(bf_col))])
-
-# ============================================================
-# TEAM OVERVIEW HTML
-# ============================================================
 def build_team_overview_html(df: pd.DataFrame, out_path: str):
     cols = [
         PLAYER_COL, "TTD", "LTD",
@@ -849,26 +946,26 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
         player = row.get(PLAYER_COL, "")
         player_filename = safe_player_filename(player)
 
-        row_bw_cls = row.get("BW [KG]_class", None)
-        row_cmj_jh_cls = row.get("Jump Height (Imp-Mom) [cm]_class", None)
-        row_sljL_jh_cls = row.get("Jump Height (Imp-Mom) [cm] (L)_class", None)
-        row_sljR_jh_cls = row.get("Jump Height (Imp-Mom) [cm] (R)_class", None)
+        # --- classes from TEAM OVERVIEW (already exist), with fallback to latest daily if missing ---
+        bw_cls = row.get("BW [KG]_class", None)
+        cmj_jh_cls = row.get("Jump Height (Imp-Mom) [cm]_class", None)
+        sljL_jh_cls = row.get("Jump Height (Imp-Mom) [cm] (L)_class", None)
+        sljR_jh_cls = row.get("Jump Height (Imp-Mom) [cm] (R)_class", None)
 
-        fallback_bw_cls, fallback_jh_cls = get_latest_bw_jh_class(player)
-        if row_bw_cls not in ["High", "Low", "Avg"]:
-            row_bw_cls = fallback_bw_cls
-        if row_cmj_jh_cls not in ["High", "Low", "Avg"]:
-            row_cmj_jh_cls = fallback_jh_cls
+        if bw_cls not in ["High", "Low", "Avg"]:
+            bw_cls = get_latest_param_class(player, "CMJ", "BW [KG]")
+        if cmj_jh_cls not in ["High", "Low", "Avg"]:
+            cmj_jh_cls = get_latest_param_class(player, "CMJ", "Jump Height (Imp-Mom) [cm]")
+        if sljL_jh_cls not in ["High", "Low", "Avg"]:
+            sljL_jh_cls = get_latest_param_class(player, "SLJ_L", "Jump Height (Imp-Mom) [cm] (L)")
+        if sljR_jh_cls not in ["High", "Low", "Avg"]:
+            sljR_jh_cls = get_latest_param_class(player, "SLJ_R", "Jump Height (Imp-Mom) [cm] (R)")
 
-        if row_sljL_jh_cls not in ["High", "Low", "Avg"]:
-            row_sljL_jh_cls = get_latest_param_class(player, "SLJ_L", "Jump Height (Imp-Mom) [cm] (L)")
-        if row_sljR_jh_cls not in ["High", "Low", "Avg"]:
-            row_sljR_jh_cls = get_latest_param_class(player, "SLJ_R", "Jump Height (Imp-Mom) [cm] (R)")
-
-        mean_bw_cmj = get_param_mean(player, "CMJ", "BW [KG]")
-        mean_jh_cmj = get_param_mean(player, "CMJ", "Jump Height (Imp-Mom) [cm]")
-        mean_jh_sljL = get_param_mean(player, "SLJ_L", "Jump Height (Imp-Mom) [cm] (L)")
-        mean_jh_sljR = get_param_mean(player, "SLJ_R", "Jump Height (Imp-Mom) [cm] (R)")
+        # --- historical averages for hover ---
+        mean_bw_cmj   = get_param_mean(player, "CMJ",   "BW [KG]")
+        mean_jh_cmj   = get_param_mean(player, "CMJ",   "Jump Height (Imp-Mom) [cm]")
+        mean_jh_sljL  = get_param_mean(player, "SLJ_L", "Jump Height (Imp-Mom) [cm] (L)")
+        mean_jh_sljR  = get_param_mean(player, "SLJ_R", "Jump Height (Imp-Mom) [cm] (R)")
 
         row_tds = []
         for col in cols:
@@ -888,58 +985,72 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 )
                 continue
 
+            # =====================================================
+            # NEW: Weight + Jump Heights always colored + hover avg
+            # (works in BOTH Summary + Advanced because no toggling)
+            # =====================================================
             if col == "BW [KG]":
-                bg, fg = classify_color(row_bw_cls)
-                title = f"CMJ Body Weight - mean: {mean_bw_cmj:.1f} kg" if mean_bw_cmj is not None else "CMJ Body Weight - no historical mean"
+                bg, fg = classify_color(bw_cls)
+                title = (f"CMJ Body Weight mean: {mean_bw_cmj:.1f} kg"
+                         if mean_bw_cmj is not None else "CMJ Body Weight mean: N/A")
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
+                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
+                    f'{html_escape(val_str)}</td>'
                 )
                 continue
 
             if col == "Jump Height (Imp-Mom) [cm]":
-                bg, fg = classify_color(row_cmj_jh_cls)
-                title = f"CMJ Jump Height - mean: {mean_jh_cmj:.1f} cm" if mean_jh_cmj is not None else "CMJ Jump Height - no historical mean"
+                bg, fg = classify_color(cmj_jh_cls)
+                title = (f"CMJ Jump Height mean: {mean_jh_cmj:.1f} cm"
+                         if mean_jh_cmj is not None else "CMJ Jump Height mean: N/A")
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
+                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
+                    f'{html_escape(val_str)}</td>'
                 )
                 continue
 
             if col == "Jump Height (Imp-Mom) [cm] (L)":
-                bg, fg = classify_color(row_sljL_jh_cls)
-                title = f"SLJ-L Jump Height - mean: {mean_jh_sljL:.1f} cm" if mean_jh_sljL is not None else "SLJ-L Jump Height - no historical mean"
+                bg, fg = classify_color(sljL_jh_cls)
+                title = (f"SLJ-L Jump Height mean: {mean_jh_sljL:.1f} cm"
+                         if mean_jh_sljL is not None else "SLJ-L Jump Height mean: N/A")
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
+                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
+                    f'{html_escape(val_str)}</td>'
                 )
                 continue
 
             if col == "Jump Height (Imp-Mom) [cm] (R)":
-                bg, fg = classify_color(row_sljR_jh_cls)
-                title = f"SLJ-R Jump Height - mean: {mean_jh_sljR:.1f} cm" if mean_jh_sljR is not None else "SLJ-R Jump Height - no historical mean"
+                bg, fg = classify_color(sljR_jh_cls)
+                title = (f"SLJ-R Jump Height mean: {mean_jh_sljR:.1f} cm"
+                         if mean_jh_sljR is not None else "SLJ-R Jump Height mean: N/A")
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">{html_escape(val_str)}</td>'
+                    f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
+                    f'{html_escape(val_str)}</td>'
                 )
                 continue
 
+            # Existing Abs/Gen logic unchanged
             if col in metric_phase_map:
                 test_type, phase = metric_phase_map[col]
-                bg, fg = classify_color(val_str)
+                overall_cls = normalize_class(val_str)
+                bg, fg = classify_color(overall_cls)
 
-                date_str, items = get_latest_phase_components(player, test_type, phase)
-                items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in items if lbl and cls)
+                date_str, tooltip_items, adv_items = get_latest_phase_components(player, test_type, phase)
+                items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in tooltip_items if lbl and cls)
                 tooltip_title = f"{test_type} {phase} ({date_str})"
 
-                summary_disp = arrow_for_class(val_str)
-                advanced_disp = phrase_from_items(items, phase)
+                summary_disp = arrow_for_class(overall_cls)
+                advanced_html = build_advanced_phase_html(adv_items)
 
                 row_tds.append(
                     f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">'
-                    f'  <span class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</span>'
-                    f'  <span class="view-advanced" style="display:none;">{html_escape(advanced_disp)}</span>'
+                    f'  <div class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</div>'
+                    f'  <div class="view-advanced" style="display:none;">{advanced_html}</div>'
                     f'</td>'
                 )
                 continue
@@ -956,11 +1067,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
 <title>Team CMJ / SLJ Overview</title>
 <style>
 :root {{
-    --primary-100:#CE0E2D;
     --primary-200:#CE0E2D;
-    --primary-300:#CE0E2D;
-    --accent-100:#FFFFFF;
-    --accent-200:#9b9b9b;
     --text-100:#FFFFFF;
     --text-200:#e0e0e0;
     --bg-100:#0A2240;
@@ -1009,9 +1116,8 @@ th {{
 a {{
     color: inherit;
     text-decoration: none;
-    font-weight: bold;
+    font-weight: 600;
 }}
-
 a:hover {{ text-decoration: underline; }}
 
 tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
@@ -1031,9 +1137,6 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
 
 .player-name-text {{ display: inline-block; }}
 
-h1 {{ color: var(--text-100); }}
-p  {{ color: var(--text-200); }}
-
 .topbar {{
     display: flex;
     align-items: flex-start;
@@ -1041,6 +1144,7 @@ p  {{ color: var(--text-200); }}
     gap: 12px;
     margin-bottom: 8px;
 }}
+
 .view-toggle {{
     display: inline-flex;
     align-items: center;
@@ -1068,6 +1172,17 @@ p  {{ color: var(--text-200); }}
     background: var(--primary-200);
     border-color: rgba(0,0,0,0.0);
 }}
+
+.view-advanced {{
+    font-weight: 400; /* NOT bold */
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: left;
+}}
+.view-advanced .adv-line {{
+    margin: 2px 0;
+    font-weight: 400; /* NOT bold */
+}}
 </style>
 </head>
 <body>
@@ -1075,11 +1190,7 @@ p  {{ color: var(--text-200); }}
 <div class="topbar">
   <div>
     <h1>CMJ & SLJ Team Overview</h1>
-    <p>
-      Hover over Absorption & Generation cells to see component classes.
-      Click a player name to open their history.
-      Use the toggle to switch between Summary vs Advanced.
-    </p>
+    <p>Hover over Absorption and Generation cells to see classifications. Click a player's name to view their history. Use the view toggle to switch between summary and advanced views.</p>
   </div>
 
   <div class="view-toggle" title="Switch between arrow view and word view">
@@ -1115,42 +1226,6 @@ def build_player_history_html(player, out_path):
             return sub
         sub[class_col] = "Avg"
         return sub
-
-    def get_row_phase_items(row, test_type, phase):
-        if test_type == "CMJ":
-            pd_col = "Concentric Duration [ms]"
-            pf_col = "Concentric Mean Force / BM [N/kg]"
-            bd_col = "Braking Phase Duration [ms]"
-            dep_col = "Countermovement Depth [cm]"
-            bf_col = "Eccentric Mean Force / BM [N/kg]"
-        elif test_type == "SLJ_L":
-            pd_col = "Concentric Duration [ms] (L)"
-            pf_col = "Concentric Mean Force / BM [N/kg] (L)"
-            bd_col = "Braking Phase Duration [ms] (L)"
-            dep_col = "Countermovement Depth [cm] (L)"
-            bf_col = "Eccentric Mean Force / BM [N/kg] (L)"
-        else:
-            pd_col = "Concentric Duration [ms] (R)"
-            pf_col = "Concentric Mean Force / BM [N/kg] (R)"
-            bd_col = "Braking Phase Duration [ms] (R)"
-            dep_col = "Countermovement Depth [cm] (R)"
-            bf_col = "Eccentric Mean Force / BM [N/kg] (R)"
-
-        if phase == "Generation":
-            items = [("PD", row.get(f"{pd_col}_class", "")),
-                     ("DEP", row.get(f"{dep_col}_class", "")),
-                     ("PF", row.get(f"{pf_col}_class", ""))]
-        else:
-            items = [("BD", row.get(f"{bd_col}_class", "")),
-                     ("DEP", row.get(f"{dep_col}_class", "")),
-                     ("BF", row.get(f"{bf_col}_class", ""))]
-
-        clean = []
-        for lbl, cls in items:
-            if cls is None or str(cls) == "nan":
-                cls = ""
-            clean.append((lbl, str(cls)))
-        return clean
 
     def tooltip_for_avg_prev(row, value_col, label):
         avg_col = f"{value_col}_avg_prev"
@@ -1231,7 +1306,15 @@ def build_player_history_html(player, out_path):
             else:
                 header_cells.append(f"<th>{html_escape(value_col_map[c]['label'])}</th>")
 
+        # precompute fallback z series for each numeric col (for this player + df_daily)
+        z_fallback_map = {}
+        for c in numeric_cols:
+            z_series = z_fallback_for_player(df_daily, player, c)
+            z_fallback_map[c] = z_series  # may be None
+
         body_rows = []
+        # NOTE: sub is already descending. For mapping to fallback z (computed on df_daily sorted by DATE),
+        # we’ll compute z for each row on the fly using row-specific value.
         for _, r in sub.iterrows():
             date_val = r.get(DATE_COL, None)
             date_str = date_val.strftime("%Y-%m-%d") if isinstance(date_val, pd.Timestamp) else ""
@@ -1244,36 +1327,91 @@ def build_player_history_html(player, out_path):
                     tds.append(f"<td>{html_escape(date_str)}</td>")
                     continue
 
-                # ---- UPDATED: Abs/Gen cells support Summary(arrow) + Advanced(words) ----
+                # Abs/Gen columns:
                 if c in [gen_col, abs_col]:
-                    cls_val = "" if pd.isna(v) else str(v)
+                    cls_val = normalize_class(v)
                     bg, fg = classify_color(cls_val)
                     phase = "Generation" if c == gen_col else "Absorption"
 
-                    items = get_row_phase_items(r, test_type, phase)
-                    items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in items if lbl and cls)
+                    # tooltip chips
+                    mapping = phase_component_columns(test_type, phase)
+                    tooltip_items = [(lbl, normalize_class(r.get(f"{col}_class", "Avg"))) for (lbl, col) in mapping]
+                    items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in tooltip_items if lbl and cls)
                     tooltip_title = f"{test_type} {phase} ({date_str})"
 
+                    # SUMMARY: arrow ONLY
                     summary_disp = arrow_for_class(cls_val)
-                    advanced_disp = phrase_from_items(items, phase)
+
+                    # ADVANCED: bring back words (stacked, unbolded) + values/unit + (Z:__)
+                    adv_items = []
+                    for lbl, colname in mapping:
+                        comp_cls = normalize_class(r.get(f"{colname}_class", "Avg"))
+                        comp_val = r.get(colname, None)
+
+                        comp_z = r.get(f"{colname}_z", None)
+                        if comp_z is None or (isinstance(comp_z, float) and pd.isna(comp_z)) or str(comp_z) == "nan":
+                            # fallback z from player history
+                            z_series = z_fallback_for_player(df_daily, player, colname)
+                            if z_series is not None:
+                                # compute using current row value
+                                try:
+                                    # safest: recompute from series stats quickly
+                                    x_all = pd.to_numeric(df_daily[df_daily[PLAYER_COL]==player][colname], errors="coerce")
+                                    mu = x_all.mean()
+                                    sd = x_all.std(ddof=1)
+                                    x_cur = pd.to_numeric(pd.Series([comp_val]), errors="coerce").iloc[0]
+                                    if not pd.isna(sd) and sd != 0 and not pd.isna(mu) and not pd.isna(x_cur):
+                                        comp_z = (x_cur - mu) / sd
+                                except Exception:
+                                    comp_z = None
+
+                        adv_items.append({"lbl": lbl, "cls": comp_cls, "col": colname, "val": comp_val, "z": comp_z})
+
+                    advanced_html = build_advanced_phase_html(adv_items)
 
                     tds.append(
                         f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
                         f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">'
-                        f'  <span class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</span>'
-                        f'  <span class="view-advanced" style="display:none;">{html_escape(advanced_disp)}</span>'
+                        f'  <div class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</div>'
+                        f'  <div class="view-advanced" style="display:none;">{advanced_html}</div>'
                         f'</td>'
                     )
                     continue
 
+                # Numeric parameter columns:
                 if c in numeric_cols:
-                    v_str = "" if pd.isna(v) else format_number(c, v)
-                    cls_val = r.get(value_col_map[c]["class_col"], "Avg")
+                    cls_val = normalize_class(r.get(value_col_map[c]["class_col"], "Avg"))
                     bg, fg = classify_color(cls_val)
                     tt_title = tooltip_for_avg_prev(r, c, value_col_map[c]["label"])
+
+                    # SUMMARY: value ONLY
+                    v_summary = "" if pd.isna(v) else format_number(c, v)
+
+                    # ADVANCED: value + (Z:__) ONLY (no impact on summary)
+                    z_val = r.get(f"{c}_z", None)
+                    if z_val is None or (isinstance(z_val, float) and pd.isna(z_val)) or str(z_val) == "nan":
+                        # fallback z from player history stats
+                        try:
+                            x_all = pd.to_numeric(df_daily[df_daily[PLAYER_COL]==player][c], errors="coerce")
+                            mu = x_all.mean()
+                            sd = x_all.std(ddof=1)
+                            x_cur = pd.to_numeric(pd.Series([v]), errors="coerce").iloc[0]
+                            if not pd.isna(sd) and sd != 0 and not pd.isna(mu) and not pd.isna(x_cur):
+                                z_val = (x_cur - mu) / sd
+                            else:
+                                z_val = None
+                        except Exception:
+                            z_val = None
+
+                    z_str = format_z(z_val)
+                    v_adv = v_summary if z_str == "" or v_summary == "" else f"{v_summary} (Z: {z_str})"
+
                     tds.append(
                         f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                        f'data-tooltip-title="{html_escape(tt_title)}" data-tooltip-items="">{html_escape(v_str)}</td>'
+                        f'data-tooltip-title="{html_escape(tt_title)}" data-tooltip-items="">'
+                        f'  <span class="view-summary">{html_escape(v_summary)}</span>'
+                        f'  <span class="view-advanced" style="display:none;">{html_escape(v_adv)}</span>'
+                        f'</td>'
                     )
                     continue
 
@@ -1303,15 +1441,10 @@ def build_player_history_html(player, out_path):
 <title>{html_escape(player)} - Jump History</title>
 <style>
 :root {{
-    --primary-100:#CE0E2D;
     --primary-200:#CE0E2D;
-    --primary-300:#CE0E2D;
-    --accent-100:#FFFFFF;
-    --accent-200:#9b9b9b;
     --text-100:#FFFFFF;
     --text-200:#e0e0e0;
     --bg-100:#0A2240;
-    --bg-200:#3A8DDE;
     --bg-300:#3A8DDE;
 }}
 
@@ -1334,8 +1467,8 @@ body {{
     margin-top: 8px;
     color: var(--primary-200);
     text-decoration: none;
+    font-weight: 600;
 }}
-
 .back-link:hover {{ text-decoration: underline; }}
 
 .player-identity {{ display: flex; align-items: center; gap: 10px; }}
@@ -1350,7 +1483,7 @@ body {{
 }}
 
 .player-identity-name {{
-    font-weight: 800;
+    font-weight: 700;
     font-size: 16px;
     white-space: nowrap;
 }}
@@ -1400,21 +1533,6 @@ body {{
     color: var(--text-200);
 }}
 
-.table-pagination-controls select {{
-    font-size: 12px;
-    background: rgba(255,255,255,0.10);
-    color: var(--text-100);
-    border: 1px solid rgba(255,255,255,0.18);
-}}
-
-.table-pagination-controls button {{
-    font-size: 11px;
-    padding: 2px 6px;
-    background: rgba(255,255,255,0.10);
-    color: var(--text-100);
-    border: 1px solid rgba(255,255,255,0.18);
-}}
-
 table {{
     border-collapse: collapse;
     width: 100%;
@@ -1438,8 +1556,16 @@ th {{
 tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
 tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
 
-h1, h2 {{ color: var(--text-100); }}
-p {{ color: var(--text-200); }}
+.view-advanced {{
+    font-weight: 400; /* NOT bold */
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: left;
+}}
+.view-advanced .adv-line {{
+    margin: 2px 0;
+    font-weight: 400; /* NOT bold */
+}}
 </style>
 </head>
 <body>
@@ -1457,9 +1583,7 @@ p {{ color: var(--text-200); }}
 
 <div class="topbar">
   <div>
-    <p style="margin:0;">
-      Toggle Summary vs Advanced
-    </p>
+    <p style="margin:0;">Hover over Absorption and Generation cells to see classifications. Hover over any cell to see the running average per parameter. Use the view toggle to switch between summary and advanced views.</p>
   </div>
   <div class="view-toggle" title="Switch between arrow view and word view">
     <span class="label">View:</span>
