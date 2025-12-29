@@ -131,6 +131,12 @@ print("Saved unified team overview CSV to:", OUTPUT_SUMMARY_CSV)
 # 2) HTML GENERATION
 # ============================================================
 
+# ============================================================
+# EDIT: Tooltip system now supports different content by view
+# - Summary: keep your existing Abs/Gen tooltip chips (perfect)
+# - Advanced: Abs/Gen tooltip shows "BD/PD: value (Z:__)" etc, colored by class
+# - All other parameter tooltips (means) remain unchanged in both views
+# ============================================================
 JS_SORT_AND_TOOLTIP = r"""
 // ---------- Table Sorting ----------
 function parseCellValue(text) {
@@ -178,7 +184,7 @@ function makeTablesSortable() {
     });
 }
 
-// ---------- Colored Tooltip for Metric Cells ----------
+// ---------- Colored Tooltip ----------
 const COLOR_MAP = {
     "High": { bg: "#FF7276", text: "#840000" },
     "Low":  { bg: "#87CEEB", text: "#305CDE" },
@@ -197,7 +203,7 @@ function createTooltip() {
         tooltip.style.padding = "8px 10px";
         tooltip.style.borderRadius = "6px";
         tooltip.style.fontSize = "11px";
-        tooltip.style.maxWidth = "260px";
+        tooltip.style.maxWidth = "320px";
         tooltip.style.zIndex = 9999;
         tooltip.style.display = "none";
         tooltip.style.boxShadow = "0 2px 10px rgba(0,0,0,0.25)";
@@ -259,16 +265,39 @@ function hideTooltip() {
     const tooltip = document.getElementById("metric-tooltip");
     if (tooltip) tooltip.style.display = "none";
 }
+
+// ---------- View Mode State ----------
+let __overviewViewMode = "summary";
+function getViewMode() {
+    return __overviewViewMode || "summary";
+}
+
+// ---------- Tooltip attachment (view-aware for Abs/Gen) ----------
 function attachMetricTooltips() {
     const cells = document.querySelectorAll("td.metric-cell");
     cells.forEach((cell) => {
-        const title = cell.getAttribute("data-tooltip-title") || "";
-        const items = cell.getAttribute("data-tooltip-items") || "";
-        cell.addEventListener("mouseenter", (evt) => showTooltip(evt, title, items));
+        cell.addEventListener("mouseenter", (evt) => {
+            const mode = getViewMode();
+
+            // Prefer view-specific tooltip fields when present:
+            const title = (mode === "advanced")
+                ? (cell.getAttribute("data-tooltip-title-advanced") || cell.getAttribute("data-tooltip-title") || "")
+                : (cell.getAttribute("data-tooltip-title-summary")  || cell.getAttribute("data-tooltip-title") || "");
+
+            const items = (mode === "advanced")
+                ? (cell.getAttribute("data-tooltip-items-advanced") || cell.getAttribute("data-tooltip-items") || "")
+                : (cell.getAttribute("data-tooltip-items-summary")  || cell.getAttribute("data-tooltip-items") || "");
+
+            // If empty, do nothing
+            if (!title && !items) return;
+            showTooltip(evt, title, items);
+        });
+
         cell.addEventListener("mousemove", (evt) => {
             const tooltip = document.getElementById("metric-tooltip");
             if (tooltip && tooltip.style.display === "block") positionTooltip(evt, tooltip);
         });
+
         cell.addEventListener("mouseleave", hideTooltip);
     });
 }
@@ -354,6 +383,8 @@ function initPagination() {
 
 // ---------- View Toggle (Summary vs Advanced) ----------
 function setOverviewView(mode) {
+    __overviewViewMode = mode;
+
     const summaryEls = document.querySelectorAll(".view-summary");
     const advancedEls = document.querySelectorAll(".view-advanced");
     const btnSum = document.getElementById("btn-view-summary");
@@ -473,7 +504,7 @@ def unit_from_col(col: str) -> str:
     return ""
 
 # ============================================================
-# WORD DISPLAY (bring back old words, unbolded, stacked)
+# WORD DISPLAY (old words, unbolded, stacked)
 # ============================================================
 def word_for_duration(cls: str) -> str:
     c = normalize_class(cls)
@@ -522,8 +553,45 @@ def value_unit_z_text(colname: str, value, z) -> str:
         return f"{v_str}{unit_str}"
     return f"{v_str}{unit_str} (Z: {z_str})"
 
+def tooltip_label_for_component(lbl: str, colname: str, value, z) -> str:
+    # Example label: "BD: 191 ms (Z: -0.50)" or "PD: 205 ms (Z: +0.22)"
+    # Keep lbl shorthand exactly as you asked (BD/PD/DEP/BF/PF)
+    detail = value_unit_z_text(colname, value, z)
+    if detail == "":
+        return f"{lbl}: N/A"
+    return f"{lbl}: {detail}"
+
 # ============================================================
-# NEW LOGIC IMPLEMENTATION (unchanged)
+# EDIT: Advanced Abs/Gen cells show ONLY "Duration: Normal" etc.
+#         Advanced Abs/Gen tooltip shows BD/PD/DEP/BF/PF values + Z
+# ============================================================
+def build_advanced_phase_cell_html_words_only(adv_items):
+    # stacked lines, NOT bold, colored by cls, words only (no values)
+    lines = []
+    for it in adv_items:
+        lbl = it["lbl"]
+        cls = normalize_class(it["cls"])
+        word = label_to_word(lbl, cls)
+        fg = classify_color(cls)[1]
+        txt = f"{pretty_lbl(lbl)}: {word}"
+        lines.append(f"<div class='adv-line' style='color:{fg};'>{html_escape(txt)}</div>")
+    return "".join(lines)
+
+def build_advanced_phase_tooltip_items_str(adv_items):
+    # chips like: "BD: 191 ms (Z: -0.50)|Low;DEP: 32.1 cm (Z: +0.20)|High;BF: ..."
+    parts = []
+    for it in adv_items:
+        lbl = it["lbl"]
+        cls = normalize_class(it["cls"])
+        col = it["col"]
+        val = it["val"]
+        z = it["z"]
+        label = tooltip_label_for_component(lbl, col, val, z)
+        parts.append(f"{label}|{cls}")
+    return ";".join(parts)
+
+# ============================================================
+# LOGIC IMPLEMENTATION (unchanged)
 # ============================================================
 def classify_generation_from_components(PD, DEP, PF) -> str:
     if PD not in ["High", "Low", "Avg"] or DEP not in ["High", "Low", "Avg"] or PF not in ["High", "Low", "Avg"]:
@@ -651,7 +719,6 @@ def coalesce_columns(df, base_name):
             if cand in df.columns:
                 df[avg_prev] = df[cand]
                 break
-    # Optional: z columns if they exist
     z_col = base_name + "_z"
     if z_col not in df.columns:
         for cand in [z_col + "_GEN", z_col + "_ABS", z_col + "_x", z_col + "_y"]:
@@ -799,7 +866,6 @@ def phase_component_columns(test_type, phase):
 
 # ============================================================
 # Z-score fallback computation (per player, per test_type, per param)
-#   Only used if "<param>_z" is missing.
 # ============================================================
 def z_fallback_for_player(df_all, player, value_col):
     if df_all is None or df_all.empty or value_col not in df_all.columns:
@@ -812,8 +878,19 @@ def z_fallback_for_player(df_all, player, value_col):
     sd = x.std(ddof=1)
     if pd.isna(sd) or sd == 0 or pd.isna(mu):
         return None
-    # return series indexed same as sub
     return (x - mu) / sd
+
+def compute_z_for_value(df_all, player, value_col, value):
+    try:
+        x_all = pd.to_numeric(df_all[df_all[PLAYER_COL] == player][value_col], errors="coerce")
+        mu = x_all.mean()
+        sd = x_all.std(ddof=1)
+        x_cur = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        if pd.isna(sd) or sd == 0 or pd.isna(mu) or pd.isna(x_cur):
+            return None
+        return (x_cur - mu) / sd
+    except Exception:
+        return None
 
 def get_df_for_test(test_type):
     return cmj_daily if test_type == "CMJ" else sljL_daily if test_type == "SLJ_L" else sljR_daily
@@ -832,53 +909,25 @@ def get_latest_phase_components(player, test_type, phase):
 
     mapping = phase_component_columns(test_type, phase)
 
-    # build tooltip chips + advanced lines data
-    tooltip_items = []
+    tooltip_items_summary = []
     adv_items = []
 
-    # fallback z series for each param, if needed
     for lbl, col in mapping:
         cls = normalize_class(last.get(f"{col}_class", "Avg"))
-        tooltip_items.append((lbl, cls))
+        tooltip_items_summary.append((lbl, cls))
 
         val = last.get(col, None)
 
         z_val = last.get(f"{col}_z", None)
         if z_val is None or (isinstance(z_val, float) and pd.isna(z_val)) or str(z_val) == "nan":
-            # compute fallback z from player history
-            z_series = z_fallback_for_player(df, player, col)
-            if z_series is not None:
-                # match last row by date (safe-ish) - use last element of z_series in sorted sub
-                z_val = z_series.iloc[-1]
+            z_val = compute_z_for_value(df, player, col, val)
 
         adv_items.append({"lbl": lbl, "cls": cls, "col": col, "val": val, "z": z_val})
 
-    return (date_str, tooltip_items, adv_items)
-
-def build_advanced_phase_html(adv_items):
-    # stacked lines, NOT bold, colored by cls, includes word + value/unit + (Z:__)
-    lines = []
-    for it in adv_items:
-        lbl = it["lbl"]
-        cls = normalize_class(it["cls"])
-        col = it["col"]
-        val = it["val"]
-        z = it["z"]
-
-        word = label_to_word(lbl, cls)
-        detail = value_unit_z_text(col, val, z)
-        fg = classify_color(cls)[1]
-
-        if detail:
-            txt = f"{pretty_lbl(lbl)}: {word} — {detail}"
-        else:
-            txt = f"{pretty_lbl(lbl)}: {word}"
-
-        lines.append(f"<div class='adv-line' style='color:{fg};'>{html_escape(txt)}</div>")
-    return "".join(lines)
+    return (date_str, tooltip_items_summary, adv_items)
 
 # ============================================================
-# TEAM OVERVIEW HTML
+# TEAM OVERVIEW HTML HELPERS
 # ============================================================
 def get_param_mean(player, test_type, param_col):
     df = cmj_daily if test_type == "CMJ" else sljL_daily if test_type == "SLJ_L" else sljR_daily
@@ -901,7 +950,9 @@ def get_latest_param_class(player, test_type, param_col):
     last = sub.iloc[-1]
     return last.get(f"{param_col}_class", None)
 
-
+# ============================================================
+# TEAM OVERVIEW HTML
+# ============================================================
 def build_team_overview_html(df: pd.DataFrame, out_path: str):
     cols = [
         PLAYER_COL, "TTD", "LTD",
@@ -939,6 +990,26 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
         "SLJ_R_GEN_OVR": ("SLJ_R", "Generation"),
     }
 
+    # ============================================================
+    # EDIT: Explicit colgroup widths to keep cell sizes stable
+    # ============================================================
+    col_widths = {
+        PLAYER_COL: "190px",
+        "TTD": "120px",
+        "LTD": "120px",
+        "BW [KG]": "110px",
+        "Jump Height (Imp-Mom) [cm]": "130px",
+        "Jump Height (Imp-Mom) [cm] (L)": "130px",
+        "Jump Height (Imp-Mom) [cm] (R)": "130px",
+        "CMJ_ABS_OVR": "120px",
+        "CMJ_GEN_OVR": "120px",
+        "SLJ_L_ABS_OVR": "120px",
+        "SLJ_L_GEN_OVR": "120px",
+        "SLJ_R_ABS_OVR": "120px",
+        "SLJ_R_GEN_OVR": "120px",
+    }
+    colgroup = "<colgroup>" + "".join([f"<col style='width:{col_widths.get(c,'120px')}'>" for c in cols]) + "</colgroup>"
+
     header_cells = "".join(f"<th>{display_labels.get(c, c)}</th>" for c in cols)
 
     html_rows = []
@@ -946,7 +1017,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
         player = row.get(PLAYER_COL, "")
         player_filename = safe_player_filename(player)
 
-        # --- classes from TEAM OVERVIEW (already exist), with fallback to latest daily if missing ---
         bw_cls = row.get("BW [KG]_class", None)
         cmj_jh_cls = row.get("Jump Height (Imp-Mom) [cm]_class", None)
         sljL_jh_cls = row.get("Jump Height (Imp-Mom) [cm] (L)_class", None)
@@ -961,7 +1031,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
         if sljR_jh_cls not in ["High", "Low", "Avg"]:
             sljR_jh_cls = get_latest_param_class(player, "SLJ_R", "Jump Height (Imp-Mom) [cm] (R)")
 
-        # --- historical averages for hover ---
         mean_bw_cmj   = get_param_mean(player, "CMJ",   "BW [KG]")
         mean_jh_cmj   = get_param_mean(player, "CMJ",   "Jump Height (Imp-Mom) [cm]")
         mean_jh_sljL  = get_param_mean(player, "SLJ_L", "Jump Height (Imp-Mom) [cm] (L)")
@@ -985,16 +1054,13 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 )
                 continue
 
-            # =====================================================
-            # NEW: Weight + Jump Heights always colored + hover avg
-            # (works in BOTH Summary + Advanced because no toggling)
-            # =====================================================
+            # Weight + Jump Heights: always colored and tooltip mean stays same in both views
             if col == "BW [KG]":
                 bg, fg = classify_color(bw_cls)
                 title = (f"CMJ Body Weight mean: {mean_bw_cmj:.1f} kg"
                          if mean_bw_cmj is not None else "CMJ Body Weight mean: N/A")
                 row_tds.append(
-                    f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
+                    f'<td class="metric-cell cell-tight" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
                     f'{html_escape(val_str)}</td>'
                 )
@@ -1005,7 +1071,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 title = (f"CMJ Jump Height mean: {mean_jh_cmj:.1f} cm"
                          if mean_jh_cmj is not None else "CMJ Jump Height mean: N/A")
                 row_tds.append(
-                    f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
+                    f'<td class="metric-cell cell-tight" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
                     f'{html_escape(val_str)}</td>'
                 )
@@ -1016,7 +1082,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 title = (f"SLJ-L Jump Height mean: {mean_jh_sljL:.1f} cm"
                          if mean_jh_sljL is not None else "SLJ-L Jump Height mean: N/A")
                 row_tds.append(
-                    f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
+                    f'<td class="metric-cell cell-tight" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
                     f'{html_escape(val_str)}</td>'
                 )
@@ -1027,35 +1093,44 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 title = (f"SLJ-R Jump Height mean: {mean_jh_sljR:.1f} cm"
                          if mean_jh_sljR is not None else "SLJ-R Jump Height mean: N/A")
                 row_tds.append(
-                    f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
+                    f'<td class="metric-cell cell-tight" style="background-color:{bg};color:{fg};" '
                     f'data-tooltip-title="{html_escape(title)}" data-tooltip-items="">'
                     f'{html_escape(val_str)}</td>'
                 )
                 continue
 
-            # Existing Abs/Gen logic unchanged
+            # Abs/Gen columns: Summary tooltip stays your current chips; Advanced tooltip becomes value+z chips.
             if col in metric_phase_map:
                 test_type, phase = metric_phase_map[col]
                 overall_cls = normalize_class(val_str)
                 bg, fg = classify_color(overall_cls)
 
-                date_str, tooltip_items, adv_items = get_latest_phase_components(player, test_type, phase)
-                items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in tooltip_items if lbl and cls)
-                tooltip_title = f"{test_type} {phase} ({date_str})"
+                date_str, tooltip_items_summary, adv_items = get_latest_phase_components(player, test_type, phase)
+
+                items_str_summary = ";".join(f"{lbl}|{cls}" for (lbl, cls) in tooltip_items_summary if lbl and cls)
+                tooltip_title_summary = f"{test_type} {phase} ({date_str})"
+
+                tooltip_title_advanced = f"{test_type} {phase} details ({date_str})"
+                items_str_advanced = build_advanced_phase_tooltip_items_str(adv_items)
 
                 summary_disp = arrow_for_class(overall_cls)
-                advanced_html = build_advanced_phase_html(adv_items)
+
+                # Advanced cell now shows words only
+                advanced_cell_html = build_advanced_phase_cell_html_words_only(adv_items)
 
                 row_tds.append(
-                    f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                    f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">'
+                    f'<td class="metric-cell phase-cell" style="background-color:{bg};color:{fg};" '
+                    f'data-tooltip-title-summary="{html_escape(tooltip_title_summary)}" '
+                    f'data-tooltip-items-summary="{html_escape(items_str_summary)}" '
+                    f'data-tooltip-title-advanced="{html_escape(tooltip_title_advanced)}" '
+                    f'data-tooltip-items-advanced="{html_escape(items_str_advanced)}">'
                     f'  <div class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</div>'
-                    f'  <div class="view-advanced" style="display:none;">{advanced_html}</div>'
+                    f'  <div class="view-advanced" style="display:none;">{advanced_cell_html}</div>'
                     f'</td>'
                 )
                 continue
 
-            row_tds.append(f"<td>{html_escape(val_str)}</td>")
+            row_tds.append(f"<td class='cell-tight'>{html_escape(val_str)}</td>")
 
         html_rows.append("<tr>" + "".join(row_tds) + "</tr>")
 
@@ -1081,61 +1156,6 @@ body {{
     background: var(--bg-100);
     color: var(--text-100);
 }}
-
-table {{
-    border-collapse: collapse;
-    width: 100%;
-    table-layout: fixed;
-    font-size: 12px;
-    background: rgba(255,255,255,0.06);
-}}
-
-th, td {{
-    border: 1px solid rgba(255,255,255,0.18);
-    padding: 4px 6px;
-    text-align: center;
-    word-wrap: break-word;
-}}
-
-th {{
-    background-color: var(--bg-300);
-    color: var(--text-100);
-    position: sticky;
-    top: 0;
-    z-index: 2;
-}}
-
-.sticky-name {{
-    position: sticky;
-    left: 0;
-    background-color: var(--bg-200);
-    z-index: 1;
-    text-align: left;
-}}
-
-a {{
-    color: inherit;
-    text-decoration: none;
-    font-weight: 600;
-}}
-a:hover {{ text-decoration: underline; }}
-
-tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
-tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
-
-.player-link {{ display: inline-flex; align-items: center; gap: 8px; }}
-
-.player-avatar {{
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    object-fit: cover;
-    border: 1px solid rgba(255,255,255,0.35);
-    flex: 0 0 auto;
-    background: rgba(255,255,255,0.08);
-}}
-
-.player-name-text {{ display: inline-block; }}
 
 .topbar {{
     display: flex;
@@ -1173,16 +1193,83 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
     border-color: rgba(0,0,0,0.0);
 }}
 
+.table-wrap {{
+    width: 100%;
+    overflow-x: auto; /* keep sizing consistent; allow horizontal scroll if needed */
+    border-radius: 10px;
+}}
+
+table {{
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed; /* stable columns */
+    font-size: 12px;
+    background: rgba(255,255,255,0.06);
+}}
+
+th, td {{
+    border: 1px solid rgba(255,255,255,0.18);
+    padding: 4px 6px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}}
+
+.cell-tight {{
+    white-space: nowrap; /* prevents random wrap differences across screens */
+}}
+
+th {{
+    background-color: var(--bg-300);
+    color: var(--text-100);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}}
+
+.sticky-name {{
+    position: sticky;
+    left: 0;
+    background-color: var(--bg-200);
+    z-index: 1;
+    text-align: left;
+    white-space: nowrap;
+}}
+
+a {{
+    color: inherit;
+    text-decoration: none;
+    font-weight: 600;
+}}
+a:hover {{ text-decoration: underline; }}
+
+tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
+tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
+
+.player-link {{ display: inline-flex; align-items: center; gap: 8px; }}
+
+.player-avatar {{
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(255,255,255,0.35);
+    flex: 0 0 auto;
+    background: rgba(255,255,255,0.08);
+}}
+
 .view-advanced {{
     font-weight: 400; /* NOT bold */
     font-size: 11px;
     line-height: 1.2;
     text-align: left;
+    white-space: normal; /* allow stacked words in phase cells */
 }}
 .view-advanced .adv-line {{
     margin: 2px 0;
     font-weight: 400; /* NOT bold */
 }}
+.phase-cell {{ padding: 6px 6px; }}
 </style>
 </head>
 <body>
@@ -1190,20 +1277,27 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
 <div class="topbar">
   <div>
     <h1>CMJ & SLJ Team Overview</h1>
-    <p>Hover over Absorption and Generation cells to see classifications. Click a player's name to view their history. Use the view toggle to switch between summary and advanced views.</p>
+    <p style="margin:0; color: var(--text-200);">
+      Hover over Absorption and Generation cells to see classifications.
+      Click a player's name to view their history.
+      Use the view toggle to switch between summary and advanced views.
+    </p>
   </div>
 
-  <div class="view-toggle" title="Switch between arrow view and word view">
+  <div class="view-toggle" title="Switch between Summary and Advanced views">
     <span class="label">View:</span>
     <button id="btn-view-summary" type="button">Summary</button>
     <button id="btn-view-advanced" type="button">Advanced</button>
   </div>
 </div>
 
-<table class="sortable-table">
-    <thead><tr>{header_cells}</tr></thead>
-    <tbody>{"".join(html_rows)}</tbody>
-</table>
+<div class="table-wrap">
+  <table class="sortable-table">
+      {colgroup}
+      <thead><tr>{header_cells}</tr></thead>
+      <tbody>{"".join(html_rows)}</tbody>
+  </table>
+</div>
 
 <script>
 {JS_SORT_AND_TOOLTIP}
@@ -1295,6 +1389,19 @@ def build_player_history_html(player, out_path):
         value_col_map = {spec["value_col"]: spec for spec in param_specs}
         numeric_cols = set(value_col_map.keys())
 
+        # ============================================================
+        # EDIT: colgroup widths for player tables (stable sizing)
+        # ============================================================
+        colgroup = "<colgroup>"
+        for c in cols:
+            if c == DATE_COL:
+                colgroup += "<col style='width:110px'>"
+            elif c in (abs_col, gen_col):
+                colgroup += "<col style='width:170px'>"
+            else:
+                colgroup += "<col style='width:150px'>"
+        colgroup += "</colgroup>"
+
         header_cells = []
         for c in cols:
             if c == DATE_COL:
@@ -1306,15 +1413,7 @@ def build_player_history_html(player, out_path):
             else:
                 header_cells.append(f"<th>{html_escape(value_col_map[c]['label'])}</th>")
 
-        # precompute fallback z series for each numeric col (for this player + df_daily)
-        z_fallback_map = {}
-        for c in numeric_cols:
-            z_series = z_fallback_for_player(df_daily, player, c)
-            z_fallback_map[c] = z_series  # may be None
-
         body_rows = []
-        # NOTE: sub is already descending. For mapping to fallback z (computed on df_daily sorted by DATE),
-        # we’ll compute z for each row on the fly using row-specific value.
         for _, r in sub.iterrows():
             date_val = r.get(DATE_COL, None)
             date_str = date_val.strftime("%Y-%m-%d") if isinstance(date_val, pd.Timestamp) else ""
@@ -1324,25 +1423,21 @@ def build_player_history_html(player, out_path):
                 v = r.get(c, "")
 
                 if c == DATE_COL:
-                    tds.append(f"<td>{html_escape(date_str)}</td>")
+                    tds.append(f"<td class='cell-tight'>{html_escape(date_str)}</td>")
                     continue
 
-                # Abs/Gen columns:
+                # Abs/Gen columns: Summary tooltip stays chips; Advanced tooltip becomes value+z chips.
                 if c in [gen_col, abs_col]:
                     cls_val = normalize_class(v)
                     bg, fg = classify_color(cls_val)
                     phase = "Generation" if c == gen_col else "Absorption"
 
-                    # tooltip chips
                     mapping = phase_component_columns(test_type, phase)
-                    tooltip_items = [(lbl, normalize_class(r.get(f"{col}_class", "Avg"))) for (lbl, col) in mapping]
-                    items_str = ";".join(f"{lbl}|{cls}" for (lbl, cls) in tooltip_items if lbl and cls)
-                    tooltip_title = f"{test_type} {phase} ({date_str})"
 
-                    # SUMMARY: arrow ONLY
-                    summary_disp = arrow_for_class(cls_val)
+                    tooltip_items_summary = [(lbl, normalize_class(r.get(f"{colname}_class", "Avg"))) for (lbl, colname) in mapping]
+                    items_str_summary = ";".join(f"{lbl}|{cls}" for (lbl, cls) in tooltip_items_summary if lbl and cls)
+                    tooltip_title_summary = f"{test_type} {phase} ({date_str})"
 
-                    # ADVANCED: bring back words (stacked, unbolded) + values/unit + (Z:__)
                     adv_items = []
                     for lbl, colname in mapping:
                         comp_cls = normalize_class(r.get(f"{colname}_class", "Avg"))
@@ -1350,64 +1445,47 @@ def build_player_history_html(player, out_path):
 
                         comp_z = r.get(f"{colname}_z", None)
                         if comp_z is None or (isinstance(comp_z, float) and pd.isna(comp_z)) or str(comp_z) == "nan":
-                            # fallback z from player history
-                            z_series = z_fallback_for_player(df_daily, player, colname)
-                            if z_series is not None:
-                                # compute using current row value
-                                try:
-                                    # safest: recompute from series stats quickly
-                                    x_all = pd.to_numeric(df_daily[df_daily[PLAYER_COL]==player][colname], errors="coerce")
-                                    mu = x_all.mean()
-                                    sd = x_all.std(ddof=1)
-                                    x_cur = pd.to_numeric(pd.Series([comp_val]), errors="coerce").iloc[0]
-                                    if not pd.isna(sd) and sd != 0 and not pd.isna(mu) and not pd.isna(x_cur):
-                                        comp_z = (x_cur - mu) / sd
-                                except Exception:
-                                    comp_z = None
+                            comp_z = compute_z_for_value(df_daily, player, colname, comp_val)
 
                         adv_items.append({"lbl": lbl, "cls": comp_cls, "col": colname, "val": comp_val, "z": comp_z})
 
-                    advanced_html = build_advanced_phase_html(adv_items)
+                    tooltip_title_advanced = f"{test_type} {phase} details ({date_str})"
+                    items_str_advanced = build_advanced_phase_tooltip_items_str(adv_items)
+
+                    summary_disp = arrow_for_class(cls_val)
+
+                    # Advanced cell shows words ONLY (no values)
+                    advanced_cell_html = build_advanced_phase_cell_html_words_only(adv_items)
 
                     tds.append(
-                        f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
-                        f'data-tooltip-title="{html_escape(tooltip_title)}" data-tooltip-items="{html_escape(items_str)}">'
+                        f'<td class="metric-cell phase-cell" style="background-color:{bg};color:{fg};" '
+                        f'data-tooltip-title-summary="{html_escape(tooltip_title_summary)}" '
+                        f'data-tooltip-items-summary="{html_escape(items_str_summary)}" '
+                        f'data-tooltip-title-advanced="{html_escape(tooltip_title_advanced)}" '
+                        f'data-tooltip-items-advanced="{html_escape(items_str_advanced)}">'
                         f'  <div class="view-summary" style="font-weight:900;font-size:16px;line-height:1;">{html_escape(summary_disp)}</div>'
-                        f'  <div class="view-advanced" style="display:none;">{advanced_html}</div>'
+                        f'  <div class="view-advanced" style="display:none;">{advanced_cell_html}</div>'
                         f'</td>'
                     )
                     continue
 
-                # Numeric parameter columns:
+                # Numeric parameter columns: mean tooltip stays same in both views
                 if c in numeric_cols:
                     cls_val = normalize_class(r.get(value_col_map[c]["class_col"], "Avg"))
                     bg, fg = classify_color(cls_val)
                     tt_title = tooltip_for_avg_prev(r, c, value_col_map[c]["label"])
 
-                    # SUMMARY: value ONLY
                     v_summary = "" if pd.isna(v) else format_number(c, v)
 
-                    # ADVANCED: value + (Z:__) ONLY (no impact on summary)
                     z_val = r.get(f"{c}_z", None)
                     if z_val is None or (isinstance(z_val, float) and pd.isna(z_val)) or str(z_val) == "nan":
-                        # fallback z from player history stats
-                        try:
-                            x_all = pd.to_numeric(df_daily[df_daily[PLAYER_COL]==player][c], errors="coerce")
-                            mu = x_all.mean()
-                            sd = x_all.std(ddof=1)
-                            x_cur = pd.to_numeric(pd.Series([v]), errors="coerce").iloc[0]
-                            if not pd.isna(sd) and sd != 0 and not pd.isna(mu) and not pd.isna(x_cur):
-                                z_val = (x_cur - mu) / sd
-                            else:
-                                z_val = None
-                        except Exception:
-                            z_val = None
-
+                        z_val = compute_z_for_value(df_daily, player, c, v)
                     z_str = format_z(z_val)
+
                     v_adv = v_summary if z_str == "" or v_summary == "" else f"{v_summary} (Z: {z_str})"
 
                     tds.append(
-                        f'<td class="metric-cell" style="background-color:{bg};color:{fg};" '
+                        f'<td class="metric-cell cell-tight" style="background-color:{bg};color:{fg};" '
                         f'data-tooltip-title="{html_escape(tt_title)}" data-tooltip-items="">'
                         f'  <span class="view-summary">{html_escape(v_summary)}</span>'
                         f'  <span class="view-advanced" style="display:none;">{html_escape(v_adv)}</span>'
@@ -1415,16 +1493,19 @@ def build_player_history_html(player, out_path):
                     )
                     continue
 
-                tds.append(f"<td>{html_escape(v)}</td>")
+                tds.append(f"<td class='cell-tight'>{html_escape(v)}</td>")
 
             body_rows.append("<tr>" + "".join(tds) + "</tr>")
 
         return f"""
 <h2>{html_escape(title)}</h2>
+<div class="table-wrap">
 <table class="sortable-table paginated-table">
+    {colgroup}
     <thead><tr>{"".join(header_cells)}</tr></thead>
     <tbody>{"".join(body_rows)}</tbody>
 </table>
+</div>
 """
 
     sections.append(build_section("CMJ", cmj_daily, "CMJ"))
@@ -1533,10 +1614,16 @@ body {{
     color: var(--text-200);
 }}
 
+.table-wrap {{
+    width: 100%;
+    overflow-x: auto; /* stable sizing + scroll */
+    border-radius: 10px;
+}}
+
 table {{
     border-collapse: collapse;
     width: 100%;
-    table-layout: auto;
+    table-layout: fixed; /* stable columns */
     font-size: 12px;
     margin-bottom: 20px;
     background: rgba(255,255,255,0.06);
@@ -1546,7 +1633,11 @@ th, td {{
     border: 1px solid rgba(255,255,255,0.18);
     padding: 4px 6px;
     text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }}
+
+.cell-tight {{ white-space: nowrap; }}
 
 th {{
     background-color: var(--bg-300);
@@ -1561,11 +1652,13 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
     font-size: 11px;
     line-height: 1.2;
     text-align: left;
+    white-space: normal; /* stacked words for Abs/Gen */
 }}
 .view-advanced .adv-line {{
     margin: 2px 0;
     font-weight: 400; /* NOT bold */
 }}
+.phase-cell {{ padding: 6px 6px; }}
 </style>
 </head>
 <body>
@@ -1583,9 +1676,13 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
 
 <div class="topbar">
   <div>
-    <p style="margin:0;">Hover over Absorption and Generation cells to see classifications. Hover over any cell to see the running average per parameter. Use the view toggle to switch between summary and advanced views.</p>
+    <p style="margin:0; color: var(--text-200);">
+      Hover over Absorption and Generation cells to see classifications.
+      Hover over any cell to see the running average per parameter.
+      Use the view toggle to switch between summary and advanced views.
+    </p>
   </div>
-  <div class="view-toggle" title="Switch between arrow view and word view">
+  <div class="view-toggle" title="Switch between Summary and Advanced views">
     <span class="label">View:</span>
     <button id="btn-view-summary" type="button">Summary</button>
     <button id="btn-view-advanced" type="button">Advanced</button>
