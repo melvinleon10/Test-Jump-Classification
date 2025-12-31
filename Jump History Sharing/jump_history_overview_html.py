@@ -132,7 +132,7 @@ print("Saved unified team overview CSV to:", OUTPUT_SUMMARY_CSV)
 # ============================================================
 
 # ============================================================
-# EDIT: Tooltip system now supports different content by view
+# EDIT 1: Tooltip system now supports different content by view
 # - Summary: keep your existing Abs/Gen tooltip chips (perfect)
 # - Advanced: Abs/Gen tooltip shows "BD/PD: value (Z:__)" etc, colored by class
 # - All other parameter tooltips (means) remain unchanged in both views
@@ -554,19 +554,16 @@ def value_unit_z_text(colname: str, value, z) -> str:
     return f"{v_str}{unit_str} (Z: {z_str})"
 
 def tooltip_label_for_component(lbl: str, colname: str, value, z) -> str:
-    # Example label: "BD: 191 ms (Z: -0.50)" or "PD: 205 ms (Z: +0.22)"
-    # Keep lbl shorthand exactly as you asked (BD/PD/DEP/BF/PF)
     detail = value_unit_z_text(colname, value, z)
     if detail == "":
         return f"{lbl}: N/A"
     return f"{lbl}: {detail}"
 
 # ============================================================
-# EDIT: Advanced Abs/Gen cells show ONLY "Duration: Normal" etc.
+# EDIT 2: Advanced Abs/Gen cells show ONLY "Duration: Normal" etc.
 #         Advanced Abs/Gen tooltip shows BD/PD/DEP/BF/PF values + Z
 # ============================================================
 def build_advanced_phase_cell_html_words_only(adv_items):
-    # stacked lines, NOT bold, colored by cls, words only (no values)
     lines = []
     for it in adv_items:
         lbl = it["lbl"]
@@ -578,7 +575,6 @@ def build_advanced_phase_cell_html_words_only(adv_items):
     return "".join(lines)
 
 def build_advanced_phase_tooltip_items_str(adv_items):
-    # chips like: "BD: 191 ms (Z: -0.50)|Low;DEP: 32.1 cm (Z: +0.20)|High;BF: ..."
     parts = []
     for it in adv_items:
         lbl = it["lbl"]
@@ -991,7 +987,7 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
     }
 
     # ============================================================
-    # EDIT: Explicit colgroup widths to keep cell sizes stable
+    # EDIT 3: Explicit colgroup widths to keep cell sizes stable
     # ============================================================
     col_widths = {
         PLAYER_COL: "190px",
@@ -1017,19 +1013,29 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
         player = row.get(PLAYER_COL, "")
         player_filename = safe_player_filename(player)
 
-        bw_cls = row.get("BW [KG]_class", None)
-        cmj_jh_cls = row.get("Jump Height (Imp-Mom) [cm]_class", None)
-        sljL_jh_cls = row.get("Jump Height (Imp-Mom) [cm] (L)_class", None)
-        sljR_jh_cls = row.get("Jump Height (Imp-Mom) [cm] (R)_class", None)
+        # ============================================================
+        # ONLY CHANGE: BW + JH class logic for TEAM OVERVIEW PAGE
+        # - Use latest DAILY class per athlete (per-test) for coloring
+        # - If daily class missing, fall back to whatever is in the overview row
+        # ============================================================
+        bw_cls_row = row.get("BW [KG]_class", None)
+        cmj_jh_cls_row = row.get("Jump Height (Imp-Mom) [cm]_class", None)
+        sljL_jh_cls_row = row.get("Jump Height (Imp-Mom) [cm] (L)_class", None)
+        sljR_jh_cls_row = row.get("Jump Height (Imp-Mom) [cm] (R)_class", None)
+
+        bw_cls = get_latest_param_class(player, "CMJ", "BW [KG]")
+        cmj_jh_cls = get_latest_param_class(player, "CMJ", "Jump Height (Imp-Mom) [cm]")
+        sljL_jh_cls = get_latest_param_class(player, "SLJ_L", "Jump Height (Imp-Mom) [cm] (L)")
+        sljR_jh_cls = get_latest_param_class(player, "SLJ_R", "Jump Height (Imp-Mom) [cm] (R)")
 
         if bw_cls not in ["High", "Low", "Avg"]:
-            bw_cls = get_latest_param_class(player, "CMJ", "BW [KG]")
+            bw_cls = bw_cls_row
         if cmj_jh_cls not in ["High", "Low", "Avg"]:
-            cmj_jh_cls = get_latest_param_class(player, "CMJ", "Jump Height (Imp-Mom) [cm]")
+            cmj_jh_cls = cmj_jh_cls_row
         if sljL_jh_cls not in ["High", "Low", "Avg"]:
-            sljL_jh_cls = get_latest_param_class(player, "SLJ_L", "Jump Height (Imp-Mom) [cm] (L)")
+            sljL_jh_cls = sljL_jh_cls_row
         if sljR_jh_cls not in ["High", "Low", "Avg"]:
-            sljR_jh_cls = get_latest_param_class(player, "SLJ_R", "Jump Height (Imp-Mom) [cm] (R)")
+            sljR_jh_cls = sljR_jh_cls_row
 
         mean_bw_cmj   = get_param_mean(player, "CMJ",   "BW [KG]")
         mean_jh_cmj   = get_param_mean(player, "CMJ",   "Jump Height (Imp-Mom) [cm]")
@@ -1390,7 +1396,7 @@ def build_player_history_html(player, out_path):
         numeric_cols = set(value_col_map.keys())
 
         # ============================================================
-        # EDIT: colgroup widths for player tables (stable sizing)
+        # EDIT 4: colgroup widths for player tables (stable sizing)
         # ============================================================
         colgroup = "<colgroup>"
         for c in cols:
@@ -1678,7 +1684,7 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
   <div>
     <p style="margin:0; color: var(--text-200);">
       Hover over Absorption and Generation cells to see classifications.
-      Hover over any cell to see the running average per parameter.
+      Click a player's name to view their history.
       Use the view toggle to switch between summary and advanced views.
     </p>
   </div>
