@@ -13,14 +13,12 @@
     --bg-200:#3A8DDE;
     --bg-300:#3A8DDE;
 }
-
 body {
     font-family: Arial, sans-serif;
     margin: 20px;
     background: var(--bg-100);
     color: var(--text-100);
 }
-
 .topbar {
     display: flex;
     align-items: flex-start;
@@ -28,7 +26,6 @@ body {
     gap: 12px;
     margin-bottom: 8px;
 }
-
 .view-toggle {
     display: inline-flex;
     align-items: center;
@@ -56,21 +53,18 @@ body {
     background: var(--primary-200);
     border-color: rgba(0,0,0,0.0);
 }
-
 .table-wrap {
     width: 100%;
-    overflow-x: auto; /* keep sizing consistent; allow horizontal scroll if needed */
+    overflow-x: auto;
     border-radius: 10px;
 }
-
 table {
     border-collapse: collapse;
     width: 100%;
-    table-layout: fixed; /* stable columns */
+    table-layout: fixed;
     font-size: 12px;
     background: rgba(255,255,255,0.06);
 }
-
 th, td {
     border: 1px solid rgba(255,255,255,0.18);
     padding: 4px 6px;
@@ -78,11 +72,7 @@ th, td {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
-.cell-tight {
-    white-space: nowrap; /* prevents random wrap differences across screens */
-}
-
+.cell-tight { white-space: nowrap; }
 th {
     background-color: var(--bg-300);
     color: var(--text-100);
@@ -90,7 +80,6 @@ th {
     top: 0;
     z-index: 2;
 }
-
 .sticky-name {
     position: sticky;
     left: 0;
@@ -99,19 +88,15 @@ th {
     text-align: left;
     white-space: nowrap;
 }
-
 a {
     color: inherit;
     text-decoration: none;
     font-weight: 600;
 }
 a:hover { text-decoration: underline; }
-
 tbody tr:nth-child(even) { background-color: rgba(255,255,255,0.06); }
 tbody tr:nth-child(odd)  { background-color: rgba(255,255,255,0.03); }
-
 .player-link { display: inline-flex; align-items: center; gap: 8px; }
-
 .player-avatar {
     width: 22px;
     height: 22px;
@@ -121,17 +106,16 @@ tbody tr:nth-child(odd)  { background-color: rgba(255,255,255,0.03); }
     flex: 0 0 auto;
     background: rgba(255,255,255,0.08);
 }
-
 .view-advanced {
-    font-weight: 400; /* NOT bold */
+    font-weight: 400;
     font-size: 11px;
     line-height: 1.2;
     text-align: left;
-    white-space: normal; /* allow stacked words in phase cells */
+    white-space: normal;
 }
 .view-advanced .adv-line {
     margin: 2px 0;
-    font-weight: 400; /* NOT bold */
+    font-weight: 400;
 }
 .phase-cell { padding: 6px 6px; }
 </style>

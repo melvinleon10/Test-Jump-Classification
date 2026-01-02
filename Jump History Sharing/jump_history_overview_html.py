@@ -132,10 +132,7 @@ print("Saved unified team overview CSV to:", OUTPUT_SUMMARY_CSV)
 # ============================================================
 
 # ============================================================
-# EDIT 1: Tooltip system now supports different content by view
-# - Summary: keep your existing Abs/Gen tooltip chips (perfect)
-# - Advanced: Abs/Gen tooltip shows "BD/PD: value (Z:__)" etc, colored by class
-# - All other parameter tooltips (means) remain unchanged in both views
+# Tooltip + sorting + view toggle JS (unchanged)
 # ============================================================
 JS_SORT_AND_TOOLTIP = r"""
 // ---------- Table Sorting ----------
@@ -559,10 +556,6 @@ def tooltip_label_for_component(lbl: str, colname: str, value, z) -> str:
         return f"{lbl}: N/A"
     return f"{lbl}: {detail}"
 
-# ============================================================
-# EDIT 2: Advanced Abs/Gen cells show ONLY "Duration: Normal" etc.
-#         Advanced Abs/Gen tooltip shows BD/PD/DEP/BF/PF values + Z
-# ============================================================
 def build_advanced_phase_cell_html_words_only(adv_items):
     lines = []
     for it in adv_items:
@@ -863,19 +856,6 @@ def phase_component_columns(test_type, phase):
 # ============================================================
 # Z-score fallback computation (per player, per test_type, per param)
 # ============================================================
-def z_fallback_for_player(df_all, player, value_col):
-    if df_all is None or df_all.empty or value_col not in df_all.columns:
-        return None
-    sub = df_all[df_all[PLAYER_COL] == player].copy()
-    if sub.empty:
-        return None
-    x = pd.to_numeric(sub[value_col], errors="coerce")
-    mu = x.mean()
-    sd = x.std(ddof=1)
-    if pd.isna(sd) or sd == 0 or pd.isna(mu):
-        return None
-    return (x - mu) / sd
-
 def compute_z_for_value(df_all, player, value_col, value):
     try:
         x_all = pd.to_numeric(df_all[df_all[PLAYER_COL] == player][value_col], errors="coerce")
@@ -986,9 +966,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
         "SLJ_R_GEN_OVR": ("SLJ_R", "Generation"),
     }
 
-    # ============================================================
-    # EDIT 3: Explicit colgroup widths to keep cell sizes stable
-    # ============================================================
     col_widths = {
         PLAYER_COL: "190px",
         "TTD": "120px",
@@ -1013,11 +990,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
         player = row.get(PLAYER_COL, "")
         player_filename = safe_player_filename(player)
 
-        # ============================================================
-        # ONLY CHANGE: BW + JH class logic for TEAM OVERVIEW PAGE
-        # - Use latest DAILY class per athlete (per-test) for coloring
-        # - If daily class missing, fall back to whatever is in the overview row
-        # ============================================================
         bw_cls_row = row.get("BW [KG]_class", None)
         cmj_jh_cls_row = row.get("Jump Height (Imp-Mom) [cm]_class", None)
         sljL_jh_cls_row = row.get("Jump Height (Imp-Mom) [cm] (L)_class", None)
@@ -1060,7 +1032,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 )
                 continue
 
-            # Weight + Jump Heights: always colored and tooltip mean stays same in both views
             if col == "BW [KG]":
                 bg, fg = classify_color(bw_cls)
                 title = (f"CMJ Body Weight mean: {mean_bw_cmj:.1f} kg"
@@ -1105,7 +1076,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 )
                 continue
 
-            # Abs/Gen columns: Summary tooltip stays your current chips; Advanced tooltip becomes value+z chips.
             if col in metric_phase_map:
                 test_type, phase = metric_phase_map[col]
                 overall_cls = normalize_class(val_str)
@@ -1120,8 +1090,6 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
                 items_str_advanced = build_advanced_phase_tooltip_items_str(adv_items)
 
                 summary_disp = arrow_for_class(overall_cls)
-
-                # Advanced cell now shows words only
                 advanced_cell_html = build_advanced_phase_cell_html_words_only(adv_items)
 
                 row_tds.append(
@@ -1155,14 +1123,12 @@ def build_team_overview_html(df: pd.DataFrame, out_path: str):
     --bg-200:#3A8DDE;
     --bg-300:#3A8DDE;
 }}
-
 body {{
     font-family: Arial, sans-serif;
     margin: 20px;
     background: var(--bg-100);
     color: var(--text-100);
 }}
-
 .topbar {{
     display: flex;
     align-items: flex-start;
@@ -1170,7 +1136,6 @@ body {{
     gap: 12px;
     margin-bottom: 8px;
 }}
-
 .view-toggle {{
     display: inline-flex;
     align-items: center;
@@ -1198,21 +1163,18 @@ body {{
     background: var(--primary-200);
     border-color: rgba(0,0,0,0.0);
 }}
-
 .table-wrap {{
     width: 100%;
-    overflow-x: auto; /* keep sizing consistent; allow horizontal scroll if needed */
+    overflow-x: auto;
     border-radius: 10px;
 }}
-
 table {{
     border-collapse: collapse;
     width: 100%;
-    table-layout: fixed; /* stable columns */
+    table-layout: fixed;
     font-size: 12px;
     background: rgba(255,255,255,0.06);
 }}
-
 th, td {{
     border: 1px solid rgba(255,255,255,0.18);
     padding: 4px 6px;
@@ -1220,11 +1182,7 @@ th, td {{
     overflow: hidden;
     text-overflow: ellipsis;
 }}
-
-.cell-tight {{
-    white-space: nowrap; /* prevents random wrap differences across screens */
-}}
-
+.cell-tight {{ white-space: nowrap; }}
 th {{
     background-color: var(--bg-300);
     color: var(--text-100);
@@ -1232,7 +1190,6 @@ th {{
     top: 0;
     z-index: 2;
 }}
-
 .sticky-name {{
     position: sticky;
     left: 0;
@@ -1241,19 +1198,15 @@ th {{
     text-align: left;
     white-space: nowrap;
 }}
-
 a {{
     color: inherit;
     text-decoration: none;
     font-weight: 600;
 }}
 a:hover {{ text-decoration: underline; }}
-
 tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
 tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
-
 .player-link {{ display: inline-flex; align-items: center; gap: 8px; }}
-
 .player-avatar {{
     width: 22px;
     height: 22px;
@@ -1263,17 +1216,16 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
     flex: 0 0 auto;
     background: rgba(255,255,255,0.08);
 }}
-
 .view-advanced {{
-    font-weight: 400; /* NOT bold */
+    font-weight: 400;
     font-size: 11px;
     line-height: 1.2;
     text-align: left;
-    white-space: normal; /* allow stacked words in phase cells */
+    white-space: normal;
 }}
 .view-advanced .adv-line {{
     margin: 2px 0;
-    font-weight: 400; /* NOT bold */
+    font-weight: 400;
 }}
 .phase-cell {{ padding: 6px 6px; }}
 </style>
@@ -1395,9 +1347,6 @@ def build_player_history_html(player, out_path):
         value_col_map = {spec["value_col"]: spec for spec in param_specs}
         numeric_cols = set(value_col_map.keys())
 
-        # ============================================================
-        # EDIT 4: colgroup widths for player tables (stable sizing)
-        # ============================================================
         colgroup = "<colgroup>"
         for c in cols:
             if c == DATE_COL:
@@ -1411,13 +1360,13 @@ def build_player_history_html(player, out_path):
         header_cells = []
         for c in cols:
             if c == DATE_COL:
-                header_cells.append("<th>Date</th>")
+                header_cells.append('<th data-col="Date">Date</th>')
             elif c == gen_col:
-                header_cells.append("<th>Generation Overall</th>")
+                header_cells.append('<th data-col="Generation_Class">Generation Overall</th>')
             elif c == abs_col:
-                header_cells.append("<th>Absorption Overall</th>")
+                header_cells.append('<th data-col="Absorption_Class">Absorption Overall</th>')
             else:
-                header_cells.append(f"<th>{html_escape(value_col_map[c]['label'])}</th>")
+                header_cells.append(f'<th data-col="{html_escape(c)}">{html_escape(value_col_map[c]["label"])}</th>')
 
         body_rows = []
         for _, r in sub.iterrows():
@@ -1432,7 +1381,6 @@ def build_player_history_html(player, out_path):
                     tds.append(f"<td class='cell-tight'>{html_escape(date_str)}</td>")
                     continue
 
-                # Abs/Gen columns: Summary tooltip stays chips; Advanced tooltip becomes value+z chips.
                 if c in [gen_col, abs_col]:
                     cls_val = normalize_class(v)
                     bg, fg = classify_color(cls_val)
@@ -1459,8 +1407,6 @@ def build_player_history_html(player, out_path):
                     items_str_advanced = build_advanced_phase_tooltip_items_str(adv_items)
 
                     summary_disp = arrow_for_class(cls_val)
-
-                    # Advanced cell shows words ONLY (no values)
                     advanced_cell_html = build_advanced_phase_cell_html_words_only(adv_items)
 
                     tds.append(
@@ -1475,7 +1421,6 @@ def build_player_history_html(player, out_path):
                     )
                     continue
 
-                # Numeric parameter columns: mean tooltip stays same in both views
                 if c in numeric_cols:
                     cls_val = normalize_class(r.get(value_col_map[c]["class_col"], "Avg"))
                     bg, fg = classify_color(cls_val)
@@ -1506,7 +1451,7 @@ def build_player_history_html(player, out_path):
         return f"""
 <h2>{html_escape(title)}</h2>
 <div class="table-wrap">
-<table class="sortable-table paginated-table">
+<table class="sortable-table paginated-table" data-test="{html_escape(test_type)}">
     {colgroup}
     <thead><tr>{"".join(header_cells)}</tr></thead>
     <tbody>{"".join(body_rows)}</tbody>
@@ -1518,6 +1463,540 @@ def build_player_history_html(player, out_path):
     sections.append(build_section("SLJ - Left", sljL_daily, "SLJ_L"))
     sections.append(build_section("SLJ - Right", sljR_daily, "SLJ_R"))
 
+    # ============================================================
+    # Visualize It dataset (canonical vars to prevent duplicates)
+    # ============================================================
+    def canonical_records_for_player(df_daily, test_type):
+        if df_daily is None or df_daily.empty:
+            return []
+        sub = df_daily[df_daily[PLAYER_COL] == player].copy()
+        if sub.empty:
+            return []
+        sub = sub.sort_values(DATE_COL)
+
+        def date_to_str(d):
+            if isinstance(d, pd.Timestamp):
+                return d.strftime("%Y-%m-%d")
+            return ""
+
+        if test_type == "CMJ":
+            col_map = {
+                "Body Weight [kg]": "BW [KG]",
+                "Jump Height [cm]": "Jump Height (Imp-Mom) [cm]",
+                "Braking Duration [ms]": "Braking Phase Duration [ms]",
+                "Squat Depth [cm]": "Countermovement Depth [cm]",
+                "Braking Force [N/kg]": "Eccentric Mean Force / BM [N/kg]",
+                "Propulsive Duration [ms]": "Concentric Duration [ms]",
+                "Propulsive Force [N/kg]": "Concentric Mean Force / BM [N/kg]",
+            }
+        elif test_type == "SLJ_L":
+            col_map = {
+                "Body Weight [kg]": "BW [KG]",
+                "Jump Height [cm]": "Jump Height (Imp-Mom) [cm] (L)",
+                "Braking Duration [ms]": "Braking Phase Duration [ms] (L)",
+                "Squat Depth [cm]": "Countermovement Depth [cm] (L)",
+                "Braking Force [N/kg]": "Eccentric Mean Force / BM [N/kg] (L)",
+                "Propulsive Duration [ms]": "Concentric Duration [ms] (L)",
+                "Propulsive Force [N/kg]": "Concentric Mean Force / BM [N/kg] (L)",
+            }
+        else:
+            col_map = {
+                "Body Weight [kg]": "BW [KG]",
+                "Jump Height [cm]": "Jump Height (Imp-Mom) [cm] (R)",
+                "Braking Duration [ms]": "Braking Phase Duration [ms] (R)",
+                "Squat Depth [cm]": "Countermovement Depth [cm] (R)",
+                "Braking Force [N/kg]": "Eccentric Mean Force / BM [N/kg] (R)",
+                "Propulsive Duration [ms]": "Concentric Duration [ms] (R)",
+                "Propulsive Force [N/kg]": "Concentric Mean Force / BM [N/kg] (R)",
+            }
+
+        recs = []
+        for _, r in sub.iterrows():
+            d = date_to_str(r.get(DATE_COL, None))
+            if not d:
+                continue
+            rec = {"Test": test_type, "Date": d}
+            for canon, src in col_map.items():
+                if src in r.index:
+                    v = pd.to_numeric(pd.Series([r.get(src, None)]), errors="coerce").iloc[0]
+                    rec[canon] = None if pd.isna(v) else float(v)
+                else:
+                    rec[canon] = None
+            recs.append(rec)
+        return recs
+
+    player_records = []
+    player_records.extend(canonical_records_for_player(cmj_daily, "CMJ"))
+    player_records.extend(canonical_records_for_player(sljL_daily, "SLJ_L"))
+    player_records.extend(canonical_records_for_player(sljR_daily, "SLJ_R"))
+
+    def py_to_js(obj):
+        if obj is None:
+            return "null"
+        if isinstance(obj, bool):
+            return "true" if obj else "false"
+        if isinstance(obj, (int, float)):
+            if pd.isna(obj):
+                return "null"
+            return str(obj)
+        if isinstance(obj, str):
+            return '"' + obj.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        if isinstance(obj, list):
+            return "[" + ",".join(py_to_js(x) for x in obj) + "]"
+        if isinstance(obj, dict):
+            items = []
+            for k, v in obj.items():
+                items.append(py_to_js(str(k)) + ":" + py_to_js(v))
+            return "{" + ",".join(items) + "}"
+        return py_to_js(str(obj))
+
+    PLAYER_DATA_JS = py_to_js(player_records)
+
+    # ============================================================
+    # Visualize It JS (EDITS ONLY per your latest request):
+    # - Color by test: CMJ red, SLJ-L light blue, SLJ-R orange
+    # - Box plot: remove "upper fence" and "lower fence" labels entirely
+    #   (keep Min/Max/Q1/Median/Q3)
+    # ============================================================
+    VISUALIZE_IT_JS = r"""
+(function(){
+  const COLORS = {
+    "CMJ":   "#CE0E2D",
+    "SLJ_L": "#3A8DDE",
+    "SLJ_R": "#F25623"
+  };
+
+  function colorForTest(t){
+    return COLORS[t] || "#CE0E2D";
+  }
+
+  function $(id){ return document.getElementById(id); }
+
+  const VAR_DEFS = [
+    {key:"Body Weight [kg]", label:"Body Weight [kg]"},
+    {key:"Jump Height [cm]", label:"Jump Height [cm]"},
+    {key:"Braking Duration [ms]", label:"Braking Duration [ms]"},
+    {key:"Squat Depth [cm]", label:"Squat Depth [cm]"},
+    {key:"Braking Force [N/kg]", label:"Braking Force [N/kg]"},
+    {key:"Propulsive Duration [ms]", label:"Propulsive Duration [ms]"},
+    {key:"Propulsive Force [N/kg]", label:"Propulsive Force [N/kg]"}
+  ];
+
+  const PLAYER_DATA = __PLAYER_DATA__;
+
+  function setTab(tabId){
+    const tabHistory = $("tab-history");
+    const tabViz = $("tab-viz");
+    const btnHistory = $("tabbtn-history");
+    const btnViz = $("tabbtn-viz");
+    if (!tabHistory || !tabViz || !btnHistory || !btnViz) return;
+
+    if (tabId === "viz") {
+      tabHistory.style.display = "none";
+      tabViz.style.display = "";
+      btnViz.classList.add("active");
+      btnHistory.classList.remove("active");
+      try { localStorage.setItem("playerTab", "viz"); } catch(e) {}
+      try { initVizOnce(); } catch(e) {}
+    } else {
+      tabViz.style.display = "none";
+      tabHistory.style.display = "";
+      btnHistory.classList.add("active");
+      btnViz.classList.remove("active");
+      try { localStorage.setItem("playerTab", "history"); } catch(e) {}
+    }
+  }
+
+  function uniq(arr){ return Array.from(new Set(arr)); }
+
+  function minDate(dates){
+    if (!dates.length) return "";
+    return dates.reduce((a,b)=> (a<b?a:b));
+  }
+  function maxDate(dates){
+    if (!dates.length) return "";
+    return dates.reduce((a,b)=> (a>b?a:b));
+  }
+  function inRange(dateStr, startStr, endStr){
+    if (!dateStr) return false;
+    if (startStr && dateStr < startStr) return false;
+    if (endStr && dateStr > endStr) return false;
+    return true;
+  }
+
+  function testLabel(t){
+    if (t === "CMJ") return "CMJ";
+    if (t === "SLJ_L") return "SLJ - Left";
+    if (t === "SLJ_R") return "SLJ - Right";
+    return t || "";
+  }
+
+  function filteredRecords(){
+    const recs = (PLAYER_DATA || []).slice();
+    const test = $("viz-test") ? $("viz-test").value : "ALL";
+    const start = $("viz-date-start") ? $("viz-date-start").value : "";
+    const end = $("viz-date-end") ? $("viz-date-end").value : "";
+
+    return recs.filter(r => {
+      if (test && test !== "ALL" && r.Test !== test) return false;
+      if (!inRange(r.Date, start, end)) return false;
+      return true;
+    });
+  }
+
+  function getAvailableVarsForTest(test){
+    const recs = (PLAYER_DATA || []).filter(r => test === "ALL" ? true : r.Test === test);
+    const available = [];
+    VAR_DEFS.forEach(vd => {
+      const hasAny = recs.some(r => typeof r[vd.key] === "number" && !isNaN(r[vd.key]));
+      if (hasAny) available.push(vd);
+    });
+    return available;
+  }
+
+  function setSelectOptions(selectEl, options, defaultKey){
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    options.forEach(opt => {
+      const o = document.createElement("option");
+      o.value = opt.key;
+      o.textContent = opt.label;
+      selectEl.appendChild(o);
+    });
+    if (options.length) {
+      const pick = options.find(o => o.key === defaultKey) ? defaultKey : options[0].key;
+      selectEl.value = pick;
+    }
+  }
+
+  function syncVariableDropdowns(){
+    const test = $("viz-test") ? $("viz-test").value : "ALL";
+    const avail = getAvailableVarsForTest(test);
+
+    const xSel = $("viz-x");
+    if (xSel) {
+      xSel.innerHTML = "";
+      const od = document.createElement("option");
+      od.value = "Date";
+      od.textContent = "Date";
+      xSel.appendChild(od);
+      avail.forEach(v => {
+        const o = document.createElement("option");
+        o.value = v.key;
+        o.textContent = v.label;
+        xSel.appendChild(o);
+      });
+      xSel.value = "Date";
+    }
+
+    const ySel = $("viz-y");
+    const defaultY = avail.find(v => v.key.indexOf("Jump Height") !== -1)?.key;
+    setSelectOptions(ySel, avail, defaultY);
+
+    const varSel = $("viz-var");
+    setSelectOptions(varSel, avail, defaultY);
+  }
+
+  function syncControlVisibility(){
+    const plotType = $("viz-plot-type");
+    const rowXY = $("viz-row-xy");
+    const rowVar = $("viz-row-var");
+    const rowGroup = $("viz-row-group");
+    if (!plotType) return;
+
+    const v = plotType.value;
+
+    if (rowXY) rowXY.style.display = (v === "scatter" || v === "line") ? "" : "none";
+    if (rowVar) rowVar.style.display = (v === "box") ? "" : "none";
+    if (rowGroup) rowGroup.style.display = (v === "box") ? "" : "none";
+  }
+
+  // quantiles for box hover text (removes fence entirely)
+  function quantileSorted(sorted, q){
+    if (!sorted.length) return null;
+    if (sorted.length === 1) return sorted[0];
+    const pos = (sorted.length - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (sorted[base + 1] === undefined) return sorted[base];
+    return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+  }
+
+  let __vizInitialized = false;
+  function initVizOnce(){
+    if (__vizInitialized) return;
+    __vizInitialized = true;
+
+    const recs = (PLAYER_DATA || []).slice();
+    const dates = recs.map(r => r.Date).filter(Boolean);
+    const dmin = minDate(dates);
+    const dmax = maxDate(dates);
+
+    const dateStart = $("viz-date-start");
+    const dateEnd = $("viz-date-end");
+    if (dateStart) dateStart.value = dmin;
+    if (dateEnd) dateEnd.value = dmax;
+
+    const testSel = $("viz-test");
+    if (testSel) {
+      const tests = uniq(recs.map(r => r.Test).filter(Boolean));
+      testSel.innerHTML = "";
+      const optAll = document.createElement("option");
+      optAll.value = "ALL";
+      optAll.textContent = "All Tests";
+      testSel.appendChild(optAll);
+      tests.forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t;
+        opt.textContent = testLabel(t);
+        testSel.appendChild(opt);
+      });
+      testSel.value = "ALL";
+    }
+
+    const plotType = $("viz-plot-type");
+    if (plotType) {
+      plotType.innerHTML = "";
+      [
+        {v:"scatter", t:"Scatter"},
+        {v:"line", t:"Line (time series)"},
+        {v:"box", t:"Box Plot"}
+      ].forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.v; opt.textContent = p.t;
+        plotType.appendChild(opt);
+      });
+      plotType.value = "scatter";
+    }
+
+    const groupSel = $("viz-group");
+    if (groupSel) {
+      groupSel.innerHTML = "";
+      [
+        {v:"NONE", t:"No grouping"},
+        {v:"Test", t:"Group by Test"}
+      ].forEach(g => {
+        const opt = document.createElement("option");
+        opt.value = g.v; opt.textContent = g.t;
+        groupSel.appendChild(opt);
+      });
+      groupSel.value = "Test";
+    }
+
+    syncVariableDropdowns();
+    syncControlVisibility();
+
+    if (testSel) testSel.addEventListener("change", () => {
+      syncVariableDropdowns();
+      renderPlot();
+    });
+
+    if (plotType) plotType.addEventListener("change", () => {
+      syncControlVisibility();
+      renderPlot();
+    });
+
+    ["viz-date-start","viz-date-end","viz-x","viz-y","viz-var","viz-group"].forEach(id=>{
+      const el = $(id);
+      if (el) el.addEventListener("change", () => renderPlot());
+    });
+
+    const renderBtn = $("viz-render");
+    if (renderBtn) renderBtn.addEventListener("click", () => renderPlot());
+
+    const resetBtn = $("viz-reset");
+    if (resetBtn) resetBtn.addEventListener("click", () => {
+      if (testSel) testSel.value = "ALL";
+      if (plotType) plotType.value = "scatter";
+      if (dateStart) dateStart.value = dmin;
+      if (dateEnd) dateEnd.value = dmax;
+      if (groupSel) groupSel.value = "Test";
+      syncVariableDropdowns();
+      syncControlVisibility();
+      renderPlot();
+    });
+
+    renderPlot();
+  }
+
+  function renderPlot(){
+    if (typeof Plotly === "undefined") {
+      const msg = $("viz-msg");
+      if (msg) msg.textContent = "Plotly failed to load (check internet access).";
+      return;
+    }
+    const msg = $("viz-msg");
+    if (msg) msg.textContent = "";
+
+    const recs = filteredRecords();
+    const plotType = $("viz-plot-type") ? $("viz-plot-type").value : "scatter";
+    const plotDiv = $("viz-plot");
+    if (!plotDiv) return;
+
+    if (!recs.length) {
+      Plotly.newPlot(plotDiv, [], { title: "No data in selected range." }, {responsive:true, displaylogo:false});
+      return;
+    }
+
+    const commonLayout = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(255,255,255,0.06)",
+      font: { color: "#FFFFFF" },
+      legend: { orientation: "h" },
+      margin: { t: 60, l: 60, r: 30, b: 60 }
+    };
+
+    if (plotType === "scatter" || plotType === "line") {
+      const xKey = $("viz-x") ? $("viz-x").value : "Date";
+      const yKey = $("viz-y") ? $("viz-y").value : "";
+      const mode = (plotType === "line") ? "lines+markers" : "markers";
+
+      const tests = uniq(recs.map(r => r.Test).filter(Boolean));
+      const traces = tests.map(t => {
+        const sub = recs.filter(r => r.Test === t);
+        const xs = [];
+        const ys = [];
+        const cd = []; // [TestLabel, Date]
+        sub.forEach(r => {
+          const xv = (xKey === "Date") ? r.Date : (typeof r[xKey] === "number" ? r[xKey] : null);
+          const yv = (typeof r[yKey] === "number" ? r[yKey] : null);
+          if (xv == null || yv == null) return;
+          xs.push(xv);
+          ys.push(yv);
+          cd.push([testLabel(r.Test), r.Date]);
+        });
+
+        const c = colorForTest(t);
+
+        if (xKey === "Date") {
+          const zipped = xs.map((x,i)=>({x, y:ys[i], cd:cd[i]})).sort((a,b)=> a.x.localeCompare(b.x));
+          return {
+            type: "scatter",
+            mode: mode,
+            name: testLabel(t),
+            x: zipped.map(z=>z.x),
+            y: zipped.map(z=>z.y),
+            customdata: zipped.map(z=>z.cd),
+            marker: { color: c, size: 8 },
+            line: { color: c, width: 2 },
+            hovertemplate:
+              "Test: %{customdata[0]}<br>" +
+              "Date: %{customdata[1]}<br>" +
+              (xKey === "Date" ? "" : ("X: %{x:.1f}<br>")) +
+              "Y: %{y:.1f}<extra></extra>"
+          };
+        }
+
+        return {
+          type: "scatter",
+          mode: mode,
+          name: testLabel(t),
+          x: xs,
+          y: ys,
+          customdata: cd,
+          marker: { color: c, size: 8 },
+          line: { color: c, width: 2 },
+          hovertemplate:
+            "Test: %{customdata[0]}<br>" +
+            "Date: %{customdata[1]}<br>" +
+            "X: %{x:.1f}<br>" +
+            "Y: %{y:.1f}<extra></extra>"
+        };
+      });
+
+      const layout = Object.assign({}, commonLayout, {
+        title: (plotType === "line" ? "Line" : "Scatter") + `: ${yKey} vs ${xKey === "Date" ? "Date" : xKey}`,
+        xaxis: { title: (xKey === "Date" ? "Date" : xKey) },
+        yaxis: { title: yKey }
+      });
+
+      Plotly.newPlot(plotDiv, traces, layout, {responsive:true, displaylogo:false});
+      return;
+    }
+
+    if (plotType === "box") {
+      const vKey = $("viz-var") ? $("viz-var").value : "";
+      const groupKey = $("viz-group") ? $("viz-group").value : "Test";
+
+      let groups = ["All"];
+      if (groupKey === "Test") {
+        groups = uniq(recs.map(r => r.Test)).filter(Boolean);
+      }
+
+      const traces = [];
+
+      groups.forEach(g => {
+        const sub = (groupKey === "Test") ? recs.filter(r => r.Test === g) : recs;
+        const ys = sub.map(r => r[vKey]).filter(v => typeof v === "number" && !isNaN(v));
+        const c = (groupKey === "Test") ? colorForTest(g) : colorForTest("CMJ");
+
+        // Suppress Plotly's default fence/min/max hover (which duplicates when equal)
+        traces.push({
+          type: "box",
+          name: (groupKey === "Test") ? testLabel(g) : "All",
+          y: ys,
+          boxpoints: "outliers",
+          marker: { color: c },
+          line: { color: c },
+          hoverinfo: "skip"   // IMPORTANT: removes upper/lower fence labels (and other default stats)
+        });
+
+        // Add a hidden hover anchor with ONLY Min/Q1/Median/Q3/Max
+        const sorted = ys.slice().sort((a,b)=>a-b);
+        const vmin = sorted.length ? sorted[0] : null;
+        const vmax = sorted.length ? sorted[sorted.length - 1] : null;
+        const q1 = quantileSorted(sorted, 0.25);
+        const med = quantileSorted(sorted, 0.50);
+        const q3 = quantileSorted(sorted, 0.75);
+
+        if (med !== null) {
+          traces.push({
+            type: "scatter",
+            mode: "markers",
+            name: (groupKey === "Test") ? testLabel(g) : "All",
+            showlegend: false,
+            x: [(groupKey === "Test") ? testLabel(g) : "All"],
+            y: [med],
+            marker: { opacity: 0, size: 16, color: c },
+            customdata: [[vmin, q1, med, q3, vmax]],
+            hovertemplate:
+              "Min: %{customdata[0]:.1f}<br>" +
+              "Q1: %{customdata[1]:.1f}<br>" +
+              "Median: %{customdata[2]:.1f}<br>" +
+              "Q3: %{customdata[3]:.1f}<br>" +
+              "Max: %{customdata[4]:.1f}<extra></extra>"
+          });
+        }
+      });
+
+      const layout = Object.assign({}, commonLayout, {
+        title: (groupKey === "Test") ? `Box Plot: ${vKey} (grouped by Test)` : `Box Plot: ${vKey}`,
+        yaxis: { title: vKey }
+      });
+
+      Plotly.newPlot(plotDiv, traces, layout, {responsive:true, displaylogo:false});
+      return;
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    const btnH = $("tabbtn-history");
+    const btnV = $("tabbtn-viz");
+    if (btnH) btnH.addEventListener("click", () => setTab("history"));
+    if (btnV) btnV.addEventListener("click", () => setTab("viz"));
+
+    let initial = "history";
+    try {
+      const saved = localStorage.getItem("playerTab");
+      if (saved === "viz" || saved === "history") initial = saved;
+    } catch(e) {}
+    setTab(initial);
+  });
+})();
+"""
+
+    VISUALIZE_IT_JS = VISUALIZE_IT_JS.replace("__PLAYER_DATA__", PLAYER_DATA_JS)
+
     player_img = player_headshot_rel(player)
 
     full_html = f"""
@@ -1526,6 +2005,10 @@ def build_player_history_html(player, out_path):
 <head>
 <meta charset="utf-8">
 <title>{html_escape(player)} - Jump History</title>
+
+<!-- Plotly (for Visualize It) -->
+<script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+
 <style>
 :root {{
     --primary-200:#CE0E2D;
@@ -1534,21 +2017,18 @@ def build_player_history_html(player, out_path):
     --bg-100:#0A2240;
     --bg-300:#3A8DDE;
 }}
-
 body {{
     font-family: Arial, sans-serif;
     margin: 20px;
     background: var(--bg-100);
     color: var(--text-100);
 }}
-
 .page-header {{
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     gap: 16px;
 }}
-
 .back-link {{
     display: inline-block;
     margin-top: 8px;
@@ -1557,9 +2037,7 @@ body {{
     font-weight: 600;
 }}
 .back-link:hover {{ text-decoration: underline; }}
-
 .player-identity {{ display: flex; align-items: center; gap: 10px; }}
-
 .player-identity img {{
     width: 48px;
     height: 48px;
@@ -1568,13 +2046,11 @@ body {{
     border: 1px solid rgba(255,255,255,0.35);
     background: rgba(255,255,255,0.08);
 }}
-
 .player-identity-name {{
     font-weight: 700;
     font-size: 16px;
     white-space: nowrap;
 }}
-
 .topbar {{
     display: flex;
     align-items: flex-start;
@@ -1582,7 +2058,6 @@ body {{
     gap: 12px;
     margin: 10px 0 12px 0;
 }}
-
 .view-toggle {{
     display: inline-flex;
     align-items: center;
@@ -1610,7 +2085,6 @@ body {{
     background: var(--primary-200);
     border-color: rgba(0,0,0,0.0);
 }}
-
 .table-pagination-controls {{
     display: flex;
     align-items: center;
@@ -1619,22 +2093,19 @@ body {{
     font-size: 12px;
     color: var(--text-200);
 }}
-
 .table-wrap {{
     width: 100%;
-    overflow-x: auto; /* stable sizing + scroll */
+    overflow-x: auto;
     border-radius: 10px;
 }}
-
 table {{
     border-collapse: collapse;
     width: 100%;
-    table-layout: fixed; /* stable columns */
+    table-layout: fixed;
     font-size: 12px;
     margin-bottom: 20px;
     background: rgba(255,255,255,0.06);
 }}
-
 th, td {{
     border: 1px solid rgba(255,255,255,0.18);
     padding: 4px 6px;
@@ -1642,36 +2113,129 @@ th, td {{
     overflow: hidden;
     text-overflow: ellipsis;
 }}
-
 .cell-tight {{ white-space: nowrap; }}
-
 th {{
     background-color: var(--bg-300);
     color: var(--text-100);
 }}
-
 tbody tr:nth-child(even) {{ background-color: rgba(255,255,255,0.06); }}
 tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
-
 .view-advanced {{
-    font-weight: 400; /* NOT bold */
+    font-weight: 400;
     font-size: 11px;
     line-height: 1.2;
     text-align: left;
-    white-space: normal; /* stacked words for Abs/Gen */
+    white-space: normal;
 }}
 .view-advanced .adv-line {{
     margin: 2px 0;
-    font-weight: 400; /* NOT bold */
+    font-weight: 400;
 }}
 .phase-cell {{ padding: 6px 6px; }}
+
+/* Tabs */
+.tabs {{
+    display: inline-flex;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.08);
+}}
+.tabs button {{
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.10);
+    color: var(--text-100);
+    cursor: pointer;
+}}
+.tabs button.active {{
+    background: var(--primary-200);
+    border-color: rgba(0,0,0,0.0);
+}}
+
+.viz-panel {{
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+}}
+.viz-controls {{
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+}}
+.viz-row {{
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+}}
+.viz-controls label, .viz-row label {{
+    display: block;
+    font-size: 12px;
+    color: var(--text-200);
+    margin-bottom: 4px;
+}}
+.viz-controls select, .viz-controls input, .viz-row select {{
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(10,34,64,0.35);
+    color: var(--text-100);
+    outline: none;
+}}
+.viz-actions {{
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}}
+.viz-actions button {{
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.10);
+    color: var(--text-100);
+    cursor: pointer;
+}}
+.viz-actions button.primary {{
+    background: var(--primary-200);
+    border-color: rgba(0,0,0,0.0);
+}}
+#viz-msg {{
+    color: #ffb3b3;
+    font-size: 12px;
+}}
+#viz-plot {{
+    width: 100%;
+    height: 520px;
+    border-radius: 12px;
+}}
+@media (max-width: 980px) {{
+  .viz-controls, .viz-row {{
+    grid-template-columns: 1fr;
+  }}
+}}
 </style>
 </head>
 <body>
 
 <div class="page-header">
     <div>
-        <h1>Jump History</h1>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <h1 style="margin:0;">Jump History</h1>
+          <div class="tabs" aria-label="Jump History tabs">
+            <button id="tabbtn-history" type="button" class="active">Jump History</button>
+            <button id="tabbtn-viz" type="button">Visualize It</button>
+          </div>
+        </div>
         <a class="back-link" href="index.html">&larr; Back to Team Overview</a>
     </div>
     <div class="player-identity">
@@ -1684,7 +2248,6 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
   <div>
     <p style="margin:0; color: var(--text-200);">
       Hover over Absorption and Generation cells to see classifications.
-      Click a player's name to view their history.
       Use the view toggle to switch between summary and advanced views.
     </p>
   </div>
@@ -1695,10 +2258,96 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
   </div>
 </div>
 
-{"".join(sections)}
+<div id="tab-history">
+  {"".join(sections)}
+</div>
+
+<div id="tab-viz" style="display:none;">
+  <div class="viz-panel">
+    <h2 style="margin-top:0;">Visualize It</h2>
+    <p style="margin-top:0; color: var(--text-200);">
+      Build custom plots from this player's CMJ / SLJ history. Filter by test type and date range, then choose a plot.
+    </p>
+
+    <div class="viz-controls">
+      <div>
+        <label for="viz-test">Test</label>
+        <select id="viz-test"></select>
+      </div>
+      <div>
+        <label for="viz-plot-type">Plot Type</label>
+        <select id="viz-plot-type"></select>
+      </div>
+      <div>
+        <label>Date Range</label>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+          <input id="viz-date-start" type="date" />
+          <input id="viz-date-end" type="date" />
+        </div>
+      </div>
+    </div>
+
+    <div id="viz-row-xy" class="viz-row">
+      <div>
+        <label for="viz-x">X-axis</label>
+        <select id="viz-x"></select>
+      </div>
+      <div>
+        <label for="viz-y">Y-axis</label>
+        <select id="viz-y"></select>
+      </div>
+      <div>
+        <label style="opacity:0;">Spacer</label>
+        <div style="height:38px;"></div>
+      </div>
+    </div>
+
+    <div id="viz-row-var" class="viz-row" style="display:none;">
+      <div>
+        <label for="viz-var">Variable</label>
+        <select id="viz-var"></select>
+      </div>
+      <div>
+        <label style="opacity:0;">Spacer</label>
+        <div style="height:38px;"></div>
+      </div>
+      <div>
+        <label style="opacity:0;">Spacer</label>
+        <div style="height:38px;"></div>
+      </div>
+    </div>
+
+    <div id="viz-row-group" class="viz-row" style="display:none;">
+      <div>
+        <label for="viz-group">Grouping (Box Plot)</label>
+        <select id="viz-group"></select>
+      </div>
+      <div>
+        <label style="opacity:0;">Spacer</label>
+        <div style="height:38px;"></div>
+      </div>
+      <div>
+        <label style="opacity:0;">Spacer</label>
+        <div style="height:38px;"></div>
+      </div>
+    </div>
+
+    <div class="viz-actions">
+      <button id="viz-render" type="button" class="primary">Render Plot</button>
+      <button id="viz-reset" type="button">Reset</button>
+      <span id="viz-msg"></span>
+    </div>
+
+    <div id="viz-plot"></div>
+  </div>
+</div>
 
 <script>
 {JS_SORT_AND_TOOLTIP}
+</script>
+
+<script>
+{VISUALIZE_IT_JS}
 </script>
 </body>
 </html>
