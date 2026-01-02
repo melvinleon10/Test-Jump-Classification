@@ -1553,10 +1553,8 @@ def build_player_history_html(player, out_path):
     PLAYER_DATA_JS = py_to_js(player_records)
 
     # ============================================================
-    # Visualize It JS (EDITS ONLY per your latest request):
-    # - Color by test: CMJ red, SLJ-L light blue, SLJ-R orange
-    # - Box plot: remove "upper fence" and "lower fence" labels entirely
-    #   (keep Min/Max/Q1/Median/Q3)
+    # Visualize It JS (EDITS ONLY):
+    # - Time series (Line) x-axis ALWAYS Date (and hide/disable X dropdown)
     # ============================================================
     VISUALIZE_IT_JS = r"""
 (function(){
@@ -1673,7 +1671,10 @@ def build_player_history_html(player, out_path):
     const test = $("viz-test") ? $("viz-test").value : "ALL";
     const avail = getAvailableVarsForTest(test);
 
+    const plotType = $("viz-plot-type") ? $("viz-plot-type").value : "scatter";
     const xSel = $("viz-x");
+
+    // Always rebuild X options (but "line" will force Date and disable)
     if (xSel) {
       xSel.innerHTML = "";
       const od = document.createElement("option");
@@ -1687,6 +1688,13 @@ def build_player_history_html(player, out_path):
         xSel.appendChild(o);
       });
       xSel.value = "Date";
+      // For time series (line), lock X to Date
+      if (plotType === "line") {
+        xSel.value = "Date";
+        xSel.disabled = true;
+      } else {
+        xSel.disabled = false;
+      }
     }
 
     const ySel = $("viz-y");
@@ -1709,6 +1717,17 @@ def build_player_history_html(player, out_path):
     if (rowXY) rowXY.style.display = (v === "scatter" || v === "line") ? "" : "none";
     if (rowVar) rowVar.style.display = (v === "box") ? "" : "none";
     if (rowGroup) rowGroup.style.display = (v === "box") ? "" : "none";
+
+    // For line plot, lock X selector to Date (also handled in syncVariableDropdowns)
+    const xSel = $("viz-x");
+    if (xSel) {
+      if (v === "line") {
+        xSel.value = "Date";
+        xSel.disabled = true;
+      } else {
+        xSel.disabled = false;
+      }
+    }
   }
 
   // quantiles for box hover text (removes fence entirely)
@@ -1792,6 +1811,7 @@ def build_player_history_html(player, out_path):
     });
 
     if (plotType) plotType.addEventListener("change", () => {
+      syncVariableDropdowns();   // IMPORTANT: re-lock X when switching to line
       syncControlVisibility();
       renderPlot();
     });
@@ -1847,7 +1867,8 @@ def build_player_history_html(player, out_path):
     };
 
     if (plotType === "scatter" || plotType === "line") {
-      const xKey = $("viz-x") ? $("viz-x").value : "Date";
+      // FORCE Date for line (time series)
+      const xKey = (plotType === "line") ? "Date" : ($("viz-x") ? $("viz-x").value : "Date");
       const yKey = $("viz-y") ? $("viz-y").value : "";
       const mode = (plotType === "line") ? "lines+markers" : "markers";
 
@@ -1930,7 +1951,7 @@ def build_player_history_html(player, out_path):
         const ys = sub.map(r => r[vKey]).filter(v => typeof v === "number" && !isNaN(v));
         const c = (groupKey === "Test") ? colorForTest(g) : colorForTest("CMJ");
 
-        // Suppress Plotly's default fence/min/max hover (which duplicates when equal)
+        // Remove Plotly default hover content (removes fences & duplicates)
         traces.push({
           type: "box",
           name: (groupKey === "Test") ? testLabel(g) : "All",
@@ -1938,10 +1959,10 @@ def build_player_history_html(player, out_path):
           boxpoints: "outliers",
           marker: { color: c },
           line: { color: c },
-          hoverinfo: "skip"   // IMPORTANT: removes upper/lower fence labels (and other default stats)
+          hoverinfo: "skip"
         });
 
-        // Add a hidden hover anchor with ONLY Min/Q1/Median/Q3/Max
+        // Add custom hover anchor with ONLY Min/Q1/Median/Q3/Max
         const sorted = ys.slice().sort((a,b)=>a-b);
         const vmin = sorted.length ? sorted[0] : null;
         const vmax = sorted.length ? sorted[sorted.length - 1] : null;
@@ -2189,6 +2210,10 @@ tbody tr:nth-child(odd)  {{ background-color: rgba(255,255,255,0.03); }}
     background: rgba(10,34,64,0.35);
     color: var(--text-100);
     outline: none;
+}}
+.viz-controls select:disabled, .viz-row select:disabled {{
+    opacity: 0.55;
+    cursor: not-allowed;
 }}
 .viz-actions {{
     display: inline-flex;
